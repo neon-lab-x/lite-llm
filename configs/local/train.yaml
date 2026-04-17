@@ -1,0 +1,46 @@
+# Local smoke-test training config
+
+# --- Output ---
+output_dir: "./artifacts/local/checkpoints"
+resume_from_last_checkpoint: false
+seed: 42
+
+# --- Data ---
+max_seq_length: 64
+data_dir: "./data/local_smoke/tokenized"
+tokenizer_name:
+
+# --- Optimizer ---
+learning_rate: 1.0e-3
+weight_decay: 0.0
+adam_beta1: 0.9
+adam_beta2: 0.95
+max_grad_norm: 1.0
+
+# --- Scheduler ---
+lr_scheduler_type: "linear"
+warmup_steps: 0
+
+# --- Batch ---
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 1
+
+# --- Precision ---
+bf16: false
+gradient_checkpointing: false
+use_cpu: true
+
+# --- Runtime ---
+max_steps: 8
+num_train_epochs: 1
+dataloader_num_workers: 0
+dataloader_pin_memory: false
+
+# --- Logging ---
+logging_steps: 1
+logging_dir: "./artifacts/local/logs"
+report_to: "none"
+
+# --- Checkpointing ---
+save_steps: 4
+save_total_limit: 2
