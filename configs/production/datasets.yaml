@@ -1,0 +1,54 @@
+# Production dataset specs — source HF datasets, filters, and token targets.
+# Used by scripts/production/prepare_data.py to stream → tokenize → upload.
+
+# Named filters (referenced by datasets below)
+filters:
+  fineweb_edu:
+    description: "int_score >= 3"
+    field: int_score
+    op: ">="
+    value: 3
+
+  chinese:
+    description: ">= 30% Chinese characters, >= 200 chars"
+    type: chinese
+    min_length: 200
+    min_ratio: 0.3
+
+# Datasets
+datasets:
+  - name: fineweb_edu
+    hf_path: HuggingFaceFW/fineweb-edu
+    split: train
+    text_column: text
+    filter: fineweb_edu
+    target_tokens: 4_000_070_328
+
+  - name: fineweb_edu_chinese
+    hf_path: opencsg/Fineweb-Edu-Chinese-V2.1
+    split: train
+    text_column: text
+    filter: chinese
+    target_tokens: 2_800_006_813
+
+  - name: finemath_4plus
+    hf_path: HuggingFaceTB/finemath
+    config: finemath-4plus
+    split: train
+    text_column: text
+    filter: null
+    target_tokens: 1_600_000_712
+
+  - name: codesearchnet_python
+    hf_path: AhmedSSoliman/CodeSearchNet-Python
+    split: train
+    text_column: code
+    filter: null
+    target_tokens: 117_231_904
+
+  - name: codefeedback
+    hf_path: m-a-p/CodeFeedback-Filtered-Instruction
+    split: train
+    text_fn: query_and_answer
+    filter: null
+    target_tokens: 59_164_860
