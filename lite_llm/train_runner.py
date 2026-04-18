@@ -1,11 +1,14 @@
 import argparse
+import datetime
 import importlib.util
 import os
 import re
+import time
 from typing import Callable, Optional
 
+import torch
 import yaml
-from transformers import AutoTokenizer, Trainer, TrainingArguments, set_seed
+from transformers import AutoTokenizer, Trainer, TrainerCallback, TrainerControl, TrainerState, TrainingArguments, set_seed
 
 from lite_llm.configuration import LiteLlmConfig
 from lite_llm.data_utils import (
@@ -17,6 +20,80 @@ from lite_llm.modeling import LiteLlmForCausalLM
 
 
 CHECKPOINT_PATTERN = re.compile(r"checkpoint-(\d+)$")
+
+
+class RichLoggingCallback(TrainerCallback):
+    """Prints tokens/sec, ETA, elapsed time, and GPU memory alongside Trainer logs."""
+
+    def __init__(self, tokens_per_step: int):
+        self._tokens_per_step = tokens_per_step
+        self._train_start: Optional[float] = None
+        self._last_time: Optional[float] = None
+        self._last_step: int = 0
+
+    def on_train_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
+        self._train_start = time.monotonic()
+        self._last_time = self._train_start
+        self._last_step = state.global_step
+
+    def on_log(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        logs: Optional[dict] = None,
+        **kwargs,
+    ):
+        if not state.is_world_process_zero or logs is None:
+            return
+
+        now = time.monotonic()
+        step = state.global_step
+        elapsed = now - self._train_start if self._train_start is not None else 0.0
+
+        # tokens/sec over the interval since last log call
+        delta_steps = step - self._last_step
+        delta_t = (now - self._last_time) if self._last_time is not None else 0.0
+        if delta_steps > 0 and delta_t > 0:
+            tok_per_sec: Optional[float] = delta_steps * self._tokens_per_step / delta_t
+        else:
+            tok_per_sec = None
+
+        # ETA based on average speed since training began
+        max_steps = state.max_steps
+        if max_steps and max_steps > 0 and step > 0:
+            avg_sec_per_step = elapsed / step
+            eta_sec = avg_sec_per_step * (max_steps - step)
+            eta_str = str(datetime.timedelta(seconds=int(eta_sec)))
+            pct = 100.0 * step / max_steps
+        else:
+            eta_str = "N/A"
+            pct = None
+
+        # Peak GPU memory reserved on this rank
+        gpu_info = ""
+        if torch.cuda.is_available():
+            mem_gb = torch.cuda.memory_reserved() / 1024**3
+            gpu_info = f"  gpu_mem={mem_gb:.1f}GB"
+
+        parts: list = []
+        if tok_per_sec is not None:
+            parts.append(f"tok/s={tok_per_sec / 1e3:.2f}k")
+        if pct is not None:
+            parts.append(f"progress={pct:.1f}%  ({step}/{max_steps})")
+        parts.append(f"ETA={eta_str}")
+        parts.append(f"elapsed={str(datetime.timedelta(seconds=int(elapsed)))}")
+
+        print(f"  [train] {'  '.join(parts)}{gpu_info}", flush=True)
+
+        self._last_time = now
+        self._last_step = step
 
 
 def load_config(path: str) -> dict:
@@ -185,6 +262,15 @@ def run_training(
         )
 
     training_args = TrainingArguments(**training_kwargs)
+
+    # tokens consumed per optimizer step (across all GPUs and accumulation steps)
+    tokens_per_step = (
+        training_args.per_device_train_batch_size
+        * training_args.gradient_accumulation_steps
+        * max_seq_length
+        * training_args.world_size
+    )
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -192,6 +278,7 @@ def run_training(
         eval_dataset=eval_dataset,
         data_collator=data_collator,
         processing_class=tokenizer,
+        callbacks=[RichLoggingCallback(tokens_per_step)],
     )
 
     print("Starting training...")

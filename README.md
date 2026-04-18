@@ -24,7 +24,9 @@ lite-llm/
 │   │   └── train.py
 │   └── production/              # 生产 GPU + DeepSpeed flow
 │       ├── prepare_data.py
-│       └── train.py
+│       ├── train.py
+│       ├── upload_to_hf.py              # 一次性上传 tokenized 数据到 HF Dataset
+│       └── upload_checkpoint_to_hf.py   # 训练中定期上传 checkpoint 到 HF Model
 ├── configs/
 │   ├── local/{model,train}.yaml
 │   └── production/{model,train}.yaml + deepspeed_zero2.json
@@ -206,6 +208,58 @@ uv run python scripts/production/train.py \
 ```
 
 训练结束后，最终权重写到 `./artifacts/production/checkpoints/final/`，并把 tokenizer 一起序列化进去，方便后续 `AutoTokenizer.from_pretrained(...)` 直接加载。
+
+### 6.4 训练日志
+
+`train_runner.py` 内置 `RichLoggingCallback`，每次 Trainer 触发日志（默认每 10 步）时，在原有的 loss/lr/epoch 输出下方额外打印一行：
+
+```
+  [train] tok/s=2.34k  progress=12.3%  (246/2000)  ETA=3:42:15  elapsed=0:31:08  gpu_mem=38.2GB
+```
+
+| 字段 | 含义 |
+|---|---|
+| `tok/s` | 从上次日志到本次的区间吞吐量（tokens/sec，取对数 k 为单位） |
+| `progress` | 当前 step / 总 step 及百分比 |
+| `ETA` | 基于训练开始至今平均速度推算的剩余时间 |
+| `elapsed` | 已训练时长 |
+| `gpu_mem` | 当前 rank 保留的 GPU 显存峰值（CUDA 可用时输出） |
+
+多卡场景下只有 rank 0 打印，不会重复输出。`tokens_per_step` 自动从 `TrainingArguments.world_size × batch_size × grad_accum × seq_len` 计算，无需额外配置。
+
+### 6.5 Checkpoint 定期上传到 HuggingFace
+
+训练期间在**另一个终端**并行运行上传脚本，每小时把最新完整 checkpoint 推送到 HF Model repo：
+
+```bash
+export HF_TOKEN=hf_xxxxxxxxxxxx
+
+python scripts/production/upload_checkpoint_to_hf.py \
+    --repo username/lite-llm-checkpoints \
+    --interval 3600          # 秒，默认 3600（1 小时）
+```
+
+脚本行为：
+
+- 扫描 `output_dir`（默认从 `configs/production/train.yaml` 读取）下 step 编号最大、且 `trainer_state.json` 存在（写完整）的 `checkpoint-*` 目录
+- 已上传过同一 step 直接跳过，**幂等**，可重启不重传
+- 上传失败只打警告，不阻断训练，下次仍会重试
+- `--once` 参数可一次性手动触发（适合 cron 调度）
+- `--private` 参数控制首次创建 repo 时的可见性
+
+常用参数：
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `--repo` | （必填） | HF model repo id，如 `NoBey/lite-llm-ckpt` |
+| `--output-dir` | 读 train.yaml | 本地 checkpoint 目录 |
+| `--config` | `configs/production/train.yaml` | 用于读取 output_dir |
+| `--token` | `$HF_TOKEN` | HF 写权限 token |
+| `--interval` | `3600` | 上传间隔（秒） |
+| `--once` | — | 上传一次后退出 |
+| `--private` | — | 建 repo 时设为私有 |
+
+> **与 `upload_to_hf.py` 的区别**：`upload_to_hf.py` 是一次性上传 tokenized `.npy` 数据到 HF **Dataset** repo，与 checkpoint 上传完全独立，互不影响。
 
 ---
 
