@@ -42,8 +42,8 @@ CATEGORY_TARGETS = {
 
 
 def filter_fineweb_edu(row):
-    score = row.get("educational_score", 0)
-    return float(score) >= 3 if score else False
+    """FineWeb-Edu: keep int_score >= 3 (educational quality)."""
+    return row.get("int_score", 0) >= 3
 
 
 def filter_chinese_edu(row):
