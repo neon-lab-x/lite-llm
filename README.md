@@ -344,7 +344,7 @@ print(tok.decode(out[0], skip_special_tokens=True))
 
 ## 10. SFT 监督微调
 
-预训练完成后，可以通过 SFT（Supervised Fine-Tuning）让模型学会对话格式。SFT 使用 TRL 库的 `SFTTrainer` + `DataCollatorForCompletionOnlyLM`，只对 assistant 回复计算 loss（loss masking）。
+预训练完成后，可以通过 SFT（Supervised Fine-Tuning）让模型学会对话格式。SFT 使用 TRL 库的 `SFTTrainer`；代码已兼容 TRL 新旧 API：旧版走 `DataCollatorForCompletionOnlyLM`，新版使用项目内兼容 collator 保持 assistant-only loss 行为。
 
 ### 10.1 数据格式
 
@@ -358,7 +358,7 @@ SFT 数据采用 OpenAI ChatML 格式（JSONL），每行一条对话：
 
 ### 10.2 Loss Masking
 
-`DataCollatorForCompletionOnlyLM` 在 tokenized 序列中搜索 `<|im_start|>assistant\n` 的 token 模式，将所有非 assistant token 的 label 设为 `-100`。模型在 forward 时看到完整上下文，但只在 assistant 回复上计算梯度。
+无论 TRL 版本，loss masking 的规则一致：在 tokenized 序列中搜索 `<|im_start|>assistant\n`，只保留 assistant 回复内容的 label，其余位置设为 `-100`。模型在 forward 时看到完整上下文，但只在 assistant 回复上计算梯度。
 
 ### 10.3 本地 SFT Smoke Test
 
@@ -415,12 +415,13 @@ uv run python -m unittest tests.test_sft -v
 - **数据**：跨文件 packing 正确、`split_train_val` 从尾部切 eval 且空 val 时返回 `None`、`tokenize_and_save` 在文档间插 EOS、shard 命名 / 续传索引正确、smoke token 全部落在 vocab 内
 - **隔离**：local 与 production 配置 YAML 实际加载后能通过对应的 flow validation
 
-**SFT 测试**（16 个用例）：
+**SFT 测试**（31 个用例）：
 
 - **数据加载**：单文件 JSONL、目录批量加载、空目录报错
 - **数据拆分**：train/val 比例正确、0 比例返回 None
 - **格式校验**：合法数据通过、缺 messages/role/content 报错
-- **Flow 隔离**：local SFT 要求 tokenizer、禁止 DeepSpeed、要求 pretrained_model_path；production SFT 要求 DeepSpeed、路径隔离
+- **Flow 隔离**：local SFT 要求 tokenizer、禁止 DeepSpeed、要求 pretrained_model_path；production SFT 要求 DeepSpeed、路径隔离（含前缀绕过拦截）
+- **运行兼容性**：校验 `sft_runner` 可导入，避免 TRL API 变更导致训练入口失效
 
 ---
 

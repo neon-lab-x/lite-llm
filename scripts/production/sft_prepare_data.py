@@ -45,9 +45,31 @@ def _convert_oasst(example):
     return {"messages": messages} if messages else None
 
 
+_SHAREGPT_ROLE_MAP = {"human": "user", "gpt": "assistant", "system": "system"}
+
+
+def _convert_sharegpt(example):
+    """Convert ShareGPT format to ChatML messages.
+
+    ShareGPT uses a ``conversations`` list where each turn has
+    ``from`` (human/gpt/system) and ``value`` keys.
+    """
+    turns = example.get("conversations") or []
+    messages = []
+    for turn in turns:
+        src = turn.get("from", "")
+        role = _SHAREGPT_ROLE_MAP.get(src)
+        content = turn.get("value", "").strip()
+        if role is None or not content:
+            continue
+        messages.append({"role": role, "content": content})
+    return {"messages": messages} if messages else None
+
+
 FORMAT_CONVERTERS = {
-    "messages": None,  # already in correct format, no conversion needed
+    "messages": None,    # already in ChatML format, no conversion needed
     "oasst": _convert_oasst,
+    "sharegpt": _convert_sharegpt,
 }
 
 
@@ -84,22 +106,26 @@ def process_spec(spec, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     count = 0
+    skipped = 0
     with open(output_path, "w") as f:
         for example in ds:
             if converter:
                 result = converter(example)
                 if result is None:
+                    skipped += 1
                     continue
                 messages = result["messages"]
             else:
                 messages = example.get("messages", [])
 
             if not messages:
+                skipped += 1
                 continue
 
             # Validate structure
             valid = all("role" in m and "content" in m for m in messages)
             if not valid:
+                skipped += 1
                 continue
 
             f.write(json.dumps({"messages": messages}) + "\n")
@@ -108,7 +134,12 @@ def process_spec(spec, output_dir):
             if target and count >= target:
                 break
 
-    print(f"  {name}: saved {count:,} conversations to {output_path}")
+    if skipped > 0:
+        print(f"  WARNING: {name}: skipped {skipped:,} invalid/empty examples during conversion.")
+    if count == 0:
+        print(f"  ERROR: {name}: 0 samples written — check that 'format: {fmt}' matches the actual dataset schema!")
+    else:
+        print(f"  {name}: saved {count:,} conversations to {output_path}")
 
 
 def main():

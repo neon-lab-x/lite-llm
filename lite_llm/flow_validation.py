@@ -4,7 +4,11 @@ import os
 def _require_prefix(path: str, prefix: str, label: str):
     resolved = os.path.realpath(path)
     prefix_resolved = os.path.realpath(prefix)
-    if not resolved.startswith(prefix_resolved):
+    try:
+        common = os.path.commonpath([resolved, prefix_resolved])
+    except ValueError:
+        common = ""
+    if common != prefix_resolved:
         raise ValueError(f"{label} must stay under {prefix}, got {path}")
 
 

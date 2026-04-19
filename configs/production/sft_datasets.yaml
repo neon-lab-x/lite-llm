@@ -11,5 +11,5 @@ datasets:
   - name: slim_orca
     hf_path: Open-Orca/SlimOrca-Dedup
     split: train
-    format: messages
+    format: sharegpt
     target_samples: 50000
