@@ -1,0 +1,56 @@
+# Production SFT training config.
+
+# --- Output ---
+output_dir: "./artifacts/production/sft_checkpoints"
+resume_from_last_checkpoint: true
+seed: 42
+
+# --- Pretrained model (from pretraining flow) ---
+pretrained_model_path: "./artifacts/production/checkpoints/final"
+
+# --- Data ---
+max_seq_length: 4096
+data_dir: "./data/production/sft"
+tokenizer_name: "Qwen/Qwen3.5-0.8B"
+val_fraction: 0.05
+eval_strategy: "steps"
+eval_steps: 500
+per_device_eval_batch_size: 1
+
+# --- Optimizer (lower LR for fine-tuning) ---
+learning_rate: 2.0e-5
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.95
+max_grad_norm: 1.0
+
+# --- Scheduler ---
+lr_scheduler_type: "cosine"
+warmup_ratio: 0.1
+
+# --- Batch ---
+# On 8 GPUs: 1 * 8 * 4096 * 8 = 262,144 tokens / step
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+
+# --- Precision ---
+bf16: true
+gradient_checkpointing: true
+use_cpu: false
+
+# --- Runtime ---
+num_train_epochs: 3
+dataloader_num_workers: 4
+dataloader_pin_memory: true
+
+# --- Logging ---
+logging_steps: 10
+logging_dir: "./artifacts/production/sft_logs"
+report_to: "wandb"
+
+# --- Checkpointing ---
+save_steps: 500
+save_total_limit: 3
+
+# --- DeepSpeed ---
+deepspeed: "configs/production/deepspeed_zero2.json"

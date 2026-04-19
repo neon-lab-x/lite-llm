@@ -126,7 +126,8 @@ class BatchUploader:
                 path_in_repo=f"{HF_TARGET_PATH}/{os.path.basename(p)}",
                 path_or_fileobj=p,
             ))
-        for attempt in range(1, 7):
+        max_retries = 20
+        for attempt in range(1, max_retries + 1):
             try:
                 self.api.create_commit(
                     repo_id=self.repo_id,
@@ -143,13 +144,14 @@ class BatchUploader:
             except Exception as e:
                 if "429" in str(e) or "rate" in str(e).lower():
                     m = re.search(r"[Rr]etry after (\d+)", str(e))
-                    wait = int(m.group(1)) + 10 if m else 300
-                    print(f"  [rate limit] waiting {wait}s (attempt {attempt}/6) ...")
+                    base = int(m.group(1)) if m else 300
+                    wait = min(base + 60 * attempt, 1800)
+                    print(f"  [rate limit] waiting {wait}s (attempt {attempt}/{max_retries}) ...")
                     time.sleep(wait)
                 else:
                     print(f"  [commit FAILED] {e}")
                     raise
-        raise RuntimeError(f"Failed to commit {len(ops)} shards after 6 retries")
+        raise RuntimeError(f"Failed to commit {len(ops)} shards after {max_retries} retries")
 
     def finish(self) -> None:
         if self.pending:

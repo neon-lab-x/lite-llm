@@ -1,0 +1,15 @@
+# Production SFT dataset specs.
+# Used by scripts/production/sft_prepare_data.py to download → convert → save as JSONL.
+
+datasets:
+  - name: openassistant_guanaco
+    hf_path: timdettmers/openassistant-guanaco
+    split: train
+    format: oasst
+    target_samples: 10000
+
+  - name: slim_orca
+    hf_path: Open-Orca/SlimOrca-Dedup
+    split: train
+    format: messages
+    target_samples: 50000

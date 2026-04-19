@@ -379,7 +379,7 @@ class LiteLlmForCausalLM(PreTrainedModel, GenerationMixin):
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             loss = F.cross_entropy(
-                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_logits.float().view(-1, shift_logits.size(-1)),
                 shift_labels.view(-1),
                 ignore_index=-100,
             )
