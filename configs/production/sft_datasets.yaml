@@ -2,14 +2,14 @@
 # Used by scripts/production/sft_prepare_data.py to download → convert → save as JSONL.
 
 datasets:
-  - name: openassistant_guanaco
-    hf_path: timdettmers/openassistant-guanaco
-    split: train
-    format: oasst
-    target_samples: 10000
+  - name: ultrachat_200k
+    hf_path: HuggingFaceH4/ultrachat_200k
+    split: train_sft
+    format: messages        # already in standard messages format, no conversion needed
+    target_samples: 50000
 
-  - name: slim_orca
-    hf_path: Open-Orca/SlimOrca-Dedup
+  - name: firefly_zh
+    hf_path: YeungNLP/firefly-train-1.1M
     split: train
-    format: sharegpt
+    format: firefly         # Chinese multi-task instruction data
     target_samples: 50000

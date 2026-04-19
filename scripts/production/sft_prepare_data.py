@@ -66,10 +66,28 @@ def _convert_sharegpt(example):
     return {"messages": messages} if messages else None
 
 
+def _convert_firefly(example):
+    """Convert Firefly (YeungNLP) Chinese instruction format to messages.
+
+    Firefly uses flat ``input`` / ``target`` fields (single-turn).
+    """
+    user_content = (example.get("input") or "").strip()
+    assistant_content = (example.get("target") or "").strip()
+    if not user_content or not assistant_content:
+        return None
+    return {
+        "messages": [
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": assistant_content},
+        ]
+    }
+
+
 FORMAT_CONVERTERS = {
     "messages": None,    # already in ChatML format, no conversion needed
     "oasst": _convert_oasst,
     "sharegpt": _convert_sharegpt,
+    "firefly": _convert_firefly,
 }
 
 
