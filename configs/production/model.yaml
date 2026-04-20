@@ -1,20 +1,25 @@
 # Production model architecture with MLA + SwiGLU + RoPE + QK-Norm.
 # vocab_size is padded up from the Qwen3.5-0.8B tokenizer (len=248077) to 248320
 # so it is a multiple of 128 -> friendlier for tensor-core matmul.
+#
+# ~1.0B parameters (with weight tying):
+#   Embedding: 248320 * 1536 = 381M
+#   24 transformer blocks:    ~609M
+#   Total:                    ~990M
 model_type: "lite_llm"
 vocab_size: 248320
 
 # Hidden / FFN / depth
-hidden_size: 2048
-intermediate_size: 5504
+hidden_size: 1536
+intermediate_size: 4608
 num_hidden_layers: 24
 
 # Attention (MLA with low-rank latent Q / KV projections)
 attention_type: "mla"
-num_attention_heads: 16
+num_attention_heads: 12
 head_dim: 128
-q_lora_rank: 512
-kv_lora_rank: 192
+q_lora_rank: 384
+kv_lora_rank: 128
 qk_norm: true
 
 # Positional encoding

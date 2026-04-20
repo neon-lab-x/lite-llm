@@ -12,6 +12,20 @@ def _require_prefix(path: str, prefix: str, label: str):
         raise ValueError(f"{label} must stay under {prefix}, got {path}")
 
 
+def _require_prefix_any(path: str, prefixes: list[str], label: str):
+    """Path must be under at least one of the given prefixes."""
+    for prefix in prefixes:
+        resolved = os.path.realpath(path)
+        prefix_resolved = os.path.realpath(prefix)
+        try:
+            common = os.path.commonpath([resolved, prefix_resolved])
+        except ValueError:
+            common = ""
+        if common == prefix_resolved:
+            return
+    raise ValueError(f"{label} must be under one of {prefixes}, got {path}")
+
+
 def validate_local_train_config(train_cfg: dict, model_cfg: dict):
     if train_cfg.get("use_cpu") is not True:
         raise ValueError("Local flow must run with use_cpu=true.")
@@ -38,7 +52,11 @@ def validate_production_train_config(train_cfg: dict, model_cfg: dict):
         raise ValueError("Production flow requires a DeepSpeed config.")
     if train_cfg.get("resume_from_last_checkpoint") is not True:
         raise ValueError("Production flow should auto-resume from the latest checkpoint.")
-    _require_prefix(train_cfg["data_dir"], "./data/production/", "Production data_dir")
+    _require_prefix_any(
+        train_cfg["data_dir"],
+        ["./data/production/", "/root/autodl-tmp/"],
+        "Production data_dir",
+    )
     _require_prefix(train_cfg["output_dir"], "./artifacts/production/", "Production output_dir")
     if "logging_dir" in train_cfg:
         _require_prefix(

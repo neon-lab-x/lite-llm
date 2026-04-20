@@ -1,54 +1,79 @@
-# Production dataset specs — source HF datasets, filters, and token targets.
-# Used by scripts/production/prepare_data.py to stream → tokenize → upload.
+# Scaled to ~20B total tokens (from ~30B) to match 1.0B model.
 
 # Named filters (referenced by datasets below)
 filters:
   fineweb_edu:
-    description: "int_score >= 3"
+    description: "int_score >= 2"
     field: int_score
     op: ">="
-    value: 3
+    value: 2
 
   chinese:
-    description: ">= 30% Chinese characters, >= 200 chars"
+    description: ">= 15% Chinese characters, >= 100 chars"
     type: chinese
-    min_length: 200
-    min_ratio: 0.3
+    min_length: 100
+    min_ratio: 0.15
 
 # Datasets
 datasets:
+  # --- English web text (educational, high quality) ---
   - name: fineweb_edu
     hf_path: HuggingFaceFW/fineweb-edu
     split: train
     text_column: text
     filter: fineweb_edu
-    target_tokens: 4_000_070_328
+    target_tokens: 8_000_000_000
 
+  # --- English web text (general, broader coverage) ---
+  # NOTE: HuggingFaceFW/fineweb has per-crawl configs (CC-MAIN-20xx-xx).
+  # Without specifying one, streaming iterates all crawls. If the default
+  # config fails, add: config: CC-MAIN-2024-10  (or another recent crawl).
+  - name: fineweb_general
+    hf_path: HuggingFaceFW/fineweb
+    split: train
+    text_column: text
+    filter: null
+    target_tokens: 4_000_000_000
+
+  # --- Chinese web text ---
   - name: fineweb_edu_chinese
     hf_path: opencsg/Fineweb-Edu-Chinese-V2.1
     split: train
     text_column: text
     filter: chinese
-    target_tokens: 2_800_006_813
+    target_tokens: 3_500_000_000
 
+  # --- Math (high quality) ---
   - name: finemath_4plus
     hf_path: HuggingFaceTB/finemath
     config: finemath-4plus
     split: train
     text_column: text
     filter: null
-    target_tokens: 1_600_000_712
+    target_tokens: 2_000_000_000
 
+  # --- Math (broader, quality >= 3) ---
+  - name: finemath_3plus
+    hf_path: HuggingFaceTB/finemath
+    config: finemath-3plus
+    split: train
+    text_column: text
+    filter: null
+    target_tokens: 1_500_000_000
+
+  # --- Code (Python) ---
   - name: codesearchnet_python
     hf_path: AhmedSSoliman/CodeSearchNet-Python
     split: train
     text_column: code
     filter: null
-    target_tokens: 117_231_904
+    min_doc_length: 20           # code snippets can be short but meaningful
+    target_tokens: 500_000_000
 
+  # --- Code instruction ---
   - name: codefeedback
     hf_path: m-a-p/CodeFeedback-Filtered-Instruction
     split: train
     text_fn: query_and_answer
     filter: null
-    target_tokens: 59_164_860
+    target_tokens: 300_000_000
