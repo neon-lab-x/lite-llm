@@ -27,7 +27,7 @@ while [ $restart -lt $MAX_RESTARTS ]; do
     echo ""
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Attempt $restart/$MAX_RESTARTS ===" | tee -a "$LOG"
 
-    $PYTHON "$@" "$SCRIPT" 2>&1 | tee -a "$LOG"
+    $PYTHON "$SCRIPT" "$@" 2>&1 | tee -a "$LOG"
     exit_code=${PIPESTATUS[0]}
 
     if [ $exit_code -eq 0 ]; then
