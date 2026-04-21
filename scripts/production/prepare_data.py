@@ -16,6 +16,7 @@ import argparse
 import array as _array
 import os
 import re
+import resource
 import sys
 import time
 
@@ -363,13 +364,15 @@ def process_spec(spec, tokenizer, *, uploader=None, scale=1.0,
                     pct = current / max(target, 1) * 100
                     remaining = (target - current) / rate if rate > 0 else -1
                     disk_mb = collected * 4 / 1e6
+                    rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
                     print(f"  [{name}] {pct:5.1f}% | "
                           f"{_fmt_tokens(current)}/{_fmt_tokens(target)} tok | "
                           f"{_fmt_speed(rate)} | "
                           f"ETA {_fmt_duration(remaining)} | "
                           f"{docs:,} docs | "
                           f"{_fmt_duration(elapsed)} elapsed"
-                          f"{f' | {disk_mb:.0f} MB' if not dry_run else ''}")
+                          f"{f' | {disk_mb:.0f} MB disk' if not dry_run else ''}"
+                          f" | {rss_mb:.0f} MB rss")
                     last_print_time = now
 
             break  # success — exit retry loop
@@ -435,6 +438,14 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # Raise FD limit — HF datasets streaming opens many parquet file handles
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target_fd = min(65536, hard)
+    if soft < target_fd:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (target_fd, hard))
+        print(f"FD limit: {int(soft)} -> {target_fd}")
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     need_upload = not (args.dry_run or args.local_only)
