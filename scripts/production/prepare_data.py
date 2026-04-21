@@ -272,6 +272,9 @@ def _resume_progress(name, *, uploader=None):
 # Per-dataset processing
 # ---------------------------------------------------------------------------
 
+MAX_STREAM_RETRIES = 10
+
+
 def process_spec(spec, tokenizer, *, uploader=None, scale=1.0,
                  no_resume=False, dry_run=False):
     name = spec["name"]
@@ -296,9 +299,6 @@ def process_spec(spec, tokenizer, *, uploader=None, scale=1.0,
     kwargs = {"path": spec["hf_path"], "split": spec["split"], "streaming": True}
     if spec.get("config"):
         kwargs["name"] = spec["config"]
-    print(f"  Connecting to {spec['hf_path']} ...", end="", flush=True)
-    ds = load_dataset(**kwargs)
-    print(f" streaming")
 
     eos_id = tokenizer.eos_token_id
     filter_fn = spec.get("filter_fn")
@@ -309,50 +309,91 @@ def process_spec(spec, tokenizer, *, uploader=None, scale=1.0,
     collected = done_tokens
     docs = 0
     skipped = 0
+    docs_seen = 0          # total rows iterated (incl. filtered), for reconnect skip
     start = time.time()
     last_print_time = start
 
-    for row in ds:
-        if collected + len(buf) >= target:
-            break
-        if filter_fn and not filter_fn(row):
-            continue
-        text = text_fn(row) if text_fn else (row.get(text_col, "") if text_col else "")
-        if not text or len(text.strip()) < min_doc_length:
-            skipped += 1
-            continue
-        buf.extend(tokenizer.encode(text, add_special_tokens=False))
-        buf.append(eos_id)
-        docs += 1
+    for attempt in range(MAX_STREAM_RETRIES + 1):
+        try:
+            # (re)connect
+            print(f"  Connecting to {spec['hf_path']} ...", end="", flush=True)
+            ds = load_dataset(**kwargs)
+            print(f" streaming")
 
-        if len(buf) >= FLUSH_EVERY:
-            collected += len(buf)
-            if dry_run:
-                buf = _array.array("i")
-            else:
+            # On reconnect, skip rows already processed in previous attempts
+            if docs_seen > 0:
+                print(f"  [{name}] reconnecting, skipping {docs_seen:,} docs ...",
+                      end="", flush=True)
+                for i, _ in enumerate(ds):
+                    if i + 1 >= docs_seen:
+                        break
+                print(f" done")
+
+            for row in ds:
+                docs_seen += 1
+                if collected + len(buf) >= target:
+                    break
+                if filter_fn and not filter_fn(row):
+                    continue
+                text = text_fn(row) if text_fn else (row.get(text_col, "") if text_col else "")
+                if not text or len(text.strip()) < min_doc_length:
+                    skipped += 1
+                    continue
+                buf.extend(tokenizer.encode(text, add_special_tokens=False))
+                buf.append(eos_id)
+                docs += 1
+
+                if len(buf) >= FLUSH_EVERY:
+                    collected += len(buf)
+                    if dry_run:
+                        buf = _array.array("i")
+                    else:
+                        path = _flush_shard(buf, name, shard_idx)
+                        if uploader is not None:
+                            uploader.add(path)
+                        buf = _array.array("i")
+                        shard_idx += 1
+
+                # Progress: every 2000 docs or 30 seconds
+                now = time.time()
+                if (docs % 2000 == 0 and docs > 0) or (now - last_print_time >= 30):
+                    current = collected + len(buf)
+                    elapsed = now - start
+                    rate = (current - done_tokens) / elapsed if elapsed > 0 else 0
+                    pct = current / max(target, 1) * 100
+                    remaining = (target - current) / rate if rate > 0 else -1
+                    disk_mb = collected * 4 / 1e6
+                    print(f"  [{name}] {pct:5.1f}% | "
+                          f"{_fmt_tokens(current)}/{_fmt_tokens(target)} tok | "
+                          f"{_fmt_speed(rate)} | "
+                          f"ETA {_fmt_duration(remaining)} | "
+                          f"{docs:,} docs | "
+                          f"{_fmt_duration(elapsed)} elapsed"
+                          f"{f' | {disk_mb:.0f} MB' if not dry_run else ''}")
+                    last_print_time = now
+
+            break  # success — exit retry loop
+
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            # Flush buffer as partial shard to preserve progress
+            if buf and not dry_run:
+                collected += len(buf)
                 path = _flush_shard(buf, name, shard_idx)
                 if uploader is not None:
                     uploader.add(path)
-                buf = _array.array("i")
                 shard_idx += 1
+                buf = _array.array("i")
 
-        # Progress: every 2000 docs or 30 seconds
-        now = time.time()
-        if (docs % 2000 == 0 and docs > 0) or (now - last_print_time >= 30):
-            current = collected + len(buf)
-            elapsed = now - start
-            rate = (current - done_tokens) / elapsed if elapsed > 0 else 0
-            pct = current / max(target, 1) * 100
-            remaining = (target - current) / rate if rate > 0 else -1
-            disk_mb = collected * 4 / 1e6
-            print(f"  [{name}] {pct:5.1f}% | "
-                  f"{_fmt_tokens(current)}/{_fmt_tokens(target)} tok | "
-                  f"{_fmt_speed(rate)} | "
-                  f"ETA {_fmt_duration(remaining)} | "
-                  f"{docs:,} docs | "
-                  f"{_fmt_duration(elapsed)} elapsed"
-                  f"{f' | {disk_mb:.0f} MB' if not dry_run else ''}")
-            last_print_time = now
+            if attempt >= MAX_STREAM_RETRIES:
+                print(f"  [{name}] FAILED after {MAX_STREAM_RETRIES} retries: {e}")
+                raise
+
+            wait = min(30 * (attempt + 1), 300)
+            print(f"  [{name}] network error (attempt {attempt + 1}/{MAX_STREAM_RETRIES}): {e}")
+            print(f"  [{name}] retrying in {wait}s ...")
+            time.sleep(wait)
 
     # Flush remaining buffer
     if buf:
