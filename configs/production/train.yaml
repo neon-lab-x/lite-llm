@@ -7,7 +7,7 @@ seed: 42
 
 # --- Data ---
 max_seq_length: 8192
-data_dir: "/root/autodl-tmp/tokenized"
+data_dir: "/root/autodl-fs/tokenized"
 tokenizer_name: "Qwen/Qwen3.5-0.8B"
 val_fraction: 0.005              # hold out tail of the stream for eval ppl
 max_val_tokens: 50000000

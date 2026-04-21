@@ -54,7 +54,7 @@ def validate_production_train_config(train_cfg: dict, model_cfg: dict):
         raise ValueError("Production flow should auto-resume from the latest checkpoint.")
     _require_prefix_any(
         train_cfg["data_dir"],
-        ["./data/production/", "/root/autodl-tmp/"],
+        ["./data/production/", "/root/autodl-tmp/", "/root/autodl-fs/"],
         "Production data_dir",
     )
     _require_prefix(train_cfg["output_dir"], "./artifacts/production/", "Production output_dir")
