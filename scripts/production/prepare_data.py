@@ -296,7 +296,9 @@ def process_spec(spec, tokenizer, *, uploader=None, scale=1.0,
     kwargs = {"path": spec["hf_path"], "split": spec["split"], "streaming": True}
     if spec.get("config"):
         kwargs["name"] = spec["config"]
+    print(f"  Connecting to {spec['hf_path']} ...", end="", flush=True)
     ds = load_dataset(**kwargs)
+    print(f" streaming")
 
     eos_id = tokenizer.eos_token_id
     filter_fn = spec.get("filter_fn")
@@ -424,11 +426,7 @@ def main():
             api.create_repo(repo_id=HF_TARGET_REPO, repo_type="dataset", private=False)
         uploader = BatchUploader(api, HF_TARGET_REPO, args.batch_size)
 
-    print(f"Tokenizer: {TOKENIZER_NAME}")
-    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME, trust_remote_code=True)
-    print(f"  Vocab: {len(tokenizer):,}")
     mode_str = "DRY RUN" if args.dry_run else ("LOCAL ONLY" if args.local_only else "UPLOAD")
-    print(f"  Mode: {mode_str}")
 
     cfg = load_datasets_config()
     specs = build_specs(cfg)
@@ -436,13 +434,36 @@ def main():
         names = set(args.datasets.split(","))
         specs = [s for s in specs if s["name"] in names]
 
+    # Print startup summary
+    scaled_total = sum(int(s["target_tokens"] * args.scale) for s in specs)
+    print(f"\n{'=' * 60}")
+    print(f"  Mode:       {mode_str}")
+    print(f"  Output:     {os.path.abspath(OUTPUT_DIR)}")
+    print(f"  Datasets:   {len(specs)}")
+    print(f"  Scale:      {args.scale}")
+    print(f"  Target:     {_fmt_tokens(scaled_total)} tokens")
+    print(f"{'=' * 60}")
+
+    # Download tokenizer
+    print(f"\n[1/2] Downloading tokenizer: {TOKENIZER_NAME} ...")
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME, trust_remote_code=True)
+    print(f"      Tokenizer ready (vocab={len(tokenizer):,})")
+
     no_resume = bool(args.verify)
     if args.verify:
         specs = [dict(s, target_tokens=FLUSH_EVERY * 2) for s in specs]
         print("\nVERIFY MODE: 2 shards per dataset.\n")
 
+    # Print dataset plan
+    print(f"\n[2/2] Dataset plan ({len(specs)} datasets):")
+    for i, s in enumerate(specs, 1):
+        t = _fmt_tokens(int(s["target_tokens"] * args.scale))
+        print(f"      {i}. {s['name']}: {t} tokens from {s['hf_path']}")
+    print()
+
     grand = 0
-    for spec in specs:
+    for idx, spec in enumerate(specs, 1):
+        print(f"--- Dataset {idx}/{len(specs)} ---")
         grand += process_spec(spec, tokenizer, uploader=uploader,
                               scale=args.scale, no_resume=no_resume,
                               dry_run=args.dry_run)
@@ -450,9 +471,11 @@ def main():
     if uploader is not None:
         uploader.finish()
 
-    print(f"\nDone. {grand:,} tokens ({grand/1e9:.2f}B)")
+    print(f"\n{'=' * 60}")
+    print(f"  Done! {_fmt_tokens(grand)} tokens processed")
+    print(f"{'=' * 60}")
     if args.local_only:
-        print(f"Shards saved to {os.path.abspath(OUTPUT_DIR)}")
+        print(f"  Shards saved to {os.path.abspath(OUTPUT_DIR)}")
 
 
 if __name__ == "__main__":
