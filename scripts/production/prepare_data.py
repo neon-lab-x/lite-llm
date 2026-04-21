@@ -14,6 +14,7 @@ Modes:
 
 import argparse
 import array as _array
+import gc
 import os
 import re
 import resource
@@ -314,6 +315,10 @@ def process_spec(spec, tokenizer, *, uploader=None, scale=1.0,
     start = time.time()
     last_print_time = start
 
+    # Periodically recreate the streaming iterator to release fsspec/datasets
+    # internal caches that leak memory (datasets#7269, fsspec#825).
+    RECONNECT_EVERY_SHARDS = 5
+
     for attempt in range(MAX_STREAM_RETRIES + 1):
         try:
             # (re)connect
@@ -330,6 +335,7 @@ def process_spec(spec, tokenizer, *, uploader=None, scale=1.0,
                         break
                 print(f" done")
 
+            shards_this_cycle = 0
             for row in ds:
                 docs_seen += 1
                 if collected + len(buf) >= target:
@@ -354,6 +360,19 @@ def process_spec(spec, tokenizer, *, uploader=None, scale=1.0,
                             uploader.add(path)
                         buf = _array.array("i")
                         shard_idx += 1
+                        shards_this_cycle += 1
+
+                    # Recreate streaming iterator periodically to free leaked memory
+                    if shards_this_cycle >= RECONNECT_EVERY_SHARDS:
+                        print(f"  [{name}] refreshing stream (shard {shard_idx}) "
+                              f"to release memory ...", flush=True)
+                        ds = None
+                        gc.collect()
+                        ds = load_dataset(**kwargs)
+                        for i, _ in enumerate(ds):
+                            if i + 1 >= docs_seen:
+                                break
+                        shards_this_cycle = 0
 
                 # Progress: every 2000 docs or 30 seconds
                 now = time.time()
