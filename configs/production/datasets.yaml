@@ -61,19 +61,14 @@ datasets:
     filter: null
     target_tokens: 1_500_000_000
 
-  # --- Code (Python) ---
-  - name: codesearchnet_python
-    hf_path: AhmedSSoliman/CodeSearchNet-Python
+  # --- Code (multi-language, 30 languages from GitHub BigQuery) ---
+  # Source: codeparrot/github-code — 115M files, 873 GB, 30 programming languages.
+  # No terms acceptance required. Covers Python, JavaScript, Java, C++, Go, Rust,
+  # TypeScript, C, C#, Ruby, PHP, Shell, SQL, HTML, CSS, Scala, etc.
+  - name: github_code
+    hf_path: codeparrot/github-code
     split: train
-    text_column: code
+    text_column: content
     filter: null
     min_doc_length: 20           # code snippets can be short but meaningful
-    target_tokens: 500_000_000
-
-  # --- Code instruction ---
-  - name: codefeedback
-    hf_path: m-a-p/CodeFeedback-Filtered-Instruction
-    split: train
-    text_fn: query_and_answer
-    filter: null
-    target_tokens: 300_000_000
+    target_tokens: 800_000_000

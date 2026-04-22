@@ -49,7 +49,7 @@ from lite_llm.token_storage import (
 TOKENIZER_NAME = "Qwen/Qwen3.5-0.8B"
 HF_TARGET_REPO = "NoBey/lite-llm"
 HF_TARGET_PATH = "tokenized"
-OUTPUT_DIR = "/root/autodl-fs/tokenized"
+OUTPUT_DIR = "data/production/tokenized"
 FLUSH_EVERY = 5_000_000          # tokens per shard (~20 MB)
 COMMIT_BATCH_SIZE = 50           # shards per commit (~1 GB)
 MIRROR_ENDPOINT = "https://hf-mirror.com"

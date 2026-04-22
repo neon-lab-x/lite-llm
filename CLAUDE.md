@@ -109,7 +109,8 @@ Each production script has a single, independent responsibility. Do NOT merge th
 
 | Script | Purpose |
 |---|---|
-| `scripts/production/prepare_data.py` | Stream, filter, tokenize, shard data to `.npy` files, and batch-upload to HF Dataset repo |
+| `scripts/production/prepare_data.py` | Stream, filter, tokenize, shard data to `.npy` files |
+| `scripts/production/pack_shards.py` | Pack `.npy` token shards into ~10GB `.tar.zst` archives for upload |
 | `scripts/production/train.py` | Launch pretraining via `train_runner.run_training` |
 | `scripts/production/upload_checkpoint_to_hf.py` | **Periodic** upload of training checkpoints to a HF **Model** repo (run alongside training) |
 | `scripts/production/sft_prepare_data.py` | Download HF SFT datasets, convert to ChatML JSONL |
@@ -117,14 +118,14 @@ Each production script has a single, independent responsibility. Do NOT merge th
 
 ## Tests
 
-- 19 unit tests in `tests/test_training_fixes.py` covering: gradient checkpointing backward, weight tying, residual init scaling, loss decrease (with/without QK-Norm), parameter count, KV-cache generation, RoPE numerical correctness, checkpoint ordering, data collation, cross-file packing, train/val splitting, EOS insertion, and flow isolation validation.
-- 16 unit tests in `tests/test_sft.py` covering: SFT data loading (single file, directory, empty dir), train/val splitting, messages format validation, local/production SFT flow validation (tokenizer, DeepSpeed, path, pretrained_model_path rules).
+- 16 unit tests in `tests/test_training_fixes.py` covering: gradient checkpointing backward, weight tying, residual init scaling, loss decrease (with/without QK-Norm), parameter count, KV-cache generation, RoPE numerical correctness, checkpoint ordering, data collation, cross-file packing, train/val splitting, EOS insertion, and flow isolation validation.
+- 37 unit tests in `tests/test_sft.py` covering: SFT data loading (single file, directory, empty dir), train/val splitting, messages format validation, local/production SFT flow validation (tokenizer, DeepSpeed, path, pretrained_model_path rules), and TRL runner compatibility checks.
 
 ## Dependencies
 
 - Base: PyTorch ≥ 2.1, transformers ≥ 4.38 (<6), pyyaml, accelerate, numpy.
 - SFT extra (`uv sync --extra sft`): trl ≥ 0.12.
-- Production extra (`uv sync --extra production`): datasets, deepspeed, huggingface_hub, wandb.
+- Production extra (`uv sync --extra production`): datasets, deepspeed, huggingface_hub, pyarrow, wandb.
 
 ## Documentation Rule
 

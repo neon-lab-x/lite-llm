@@ -26,7 +26,7 @@ import time
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-OUTPUT_DIR = "/root/autodl-fs/tokenized"
+OUTPUT_DIR = "data/production/tokenized"
 TARGET_ARCHIVE_SIZE = 10 * 1024 ** 3   # 10 GB
 MANIFEST_NAME = "pack_manifest.json"    # tracks what's been packed
 ARCHIVE_PREFIX = "shards_pack"
@@ -159,11 +159,19 @@ def main():
                         help="Target archive size (e.g. 10g, 5g, 20g)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show plan without creating archives")
+    parser.add_argument("--dataset", type=str, default=None,
+                        help="Only pack files belonging to this dataset (prefix filter, e.g. fineweb_edu)")
     parser.add_argument("--prefix", type=str, default=ARCHIVE_PREFIX,
-                        help=f"Archive filename prefix (default: {ARCHIVE_PREFIX})")
+                        help=f"Archive filename prefix (default: {ARCHIVE_PREFIX}; auto-set to dataset name when --dataset is used)")
     args = parser.parse_args()
 
     ARCHIVE_PREFIX = args.prefix
+
+    # When --dataset is given, auto-set prefix to the dataset name if not
+    # explicitly overridden, and filter files by that prefix.
+    dataset_filter = args.dataset
+    if dataset_filter and args.prefix == "shards_pack":
+        ARCHIVE_PREFIX = dataset_filter
 
     output_dir = args.output_dir or OUTPUT_DIR
     if not os.path.isdir(output_dir):
@@ -185,6 +193,8 @@ def main():
 
     # Find .npy files
     npy_files = find_npy_files(output_dir)
+    if dataset_filter:
+        npy_files = [f for f in npy_files if f.startswith(dataset_filter + "-")]
     if not npy_files:
         print("No .npy files found.")
         return
