@@ -18,6 +18,7 @@ production = [
     "datasets>=2.16.0,<5",
     "deepspeed>=0.13.0,<1",
     "huggingface_hub>=0.23.0,<2",
+    "pyarrow>=14.0.0,<20",
     "wandb>=0.16.0,<1",
 ]
 
