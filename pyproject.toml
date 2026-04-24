@@ -1,7 +1,7 @@
 [project]
 name = "lite-llm"
 version = "0.1.0"
-description = "From-scratch causal LM pre-training project with Grouped-Query Attention."
+description = "From-scratch causal LM pre-training project with Multi-head Latent Attention (MLA)."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

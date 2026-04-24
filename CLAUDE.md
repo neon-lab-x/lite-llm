@@ -115,11 +115,12 @@ Each production script has a single, independent responsibility. Do NOT merge th
 | `scripts/production/upload_checkpoint_to_hf.py` | **Periodic** upload of training checkpoints to a HF **Model** repo (run alongside training) |
 | `scripts/production/sft_prepare_data.py` | Download HF SFT datasets, convert to ChatML JSONL |
 | `scripts/production/sft_train.py` | Launch SFT via `sft_runner.run_sft_training` |
+| `scripts/production/run_prepare_loop.sh` | Looping wrapper for `prepare_data.py` (re-runs on failure) |
 
 ## Tests
 
-- 16 unit tests in `tests/test_training_fixes.py` covering: gradient checkpointing backward, weight tying, residual init scaling, loss decrease (with/without QK-Norm), parameter count, KV-cache generation, RoPE numerical correctness, checkpoint ordering, data collation, cross-file packing, train/val splitting, EOS insertion, and flow isolation validation.
-- 37 unit tests in `tests/test_sft.py` covering: SFT data loading (single file, directory, empty dir), train/val splitting, messages format validation, local/production SFT flow validation (tokenizer, DeepSpeed, path, pretrained_model_path rules), and TRL runner compatibility checks.
+- 19 unit tests in `tests/test_training_fixes.py` covering: gradient checkpointing backward, weight tying, residual init scaling, loss decrease (with/without QK-Norm), parameter count, KV-cache generation, RoPE numerical correctness, checkpoint ordering, data collation, cross-file packing, train/val splitting, EOS insertion, flow isolation validation, and others.
+- 37 unit tests in `tests/test_sft.py` covering: SFT data loading (single file, directory, empty dir), train/val splitting, messages format validation, local/production SFT flow validation (tokenizer, DeepSpeed, path, pretrained_model_path rules), loss masking, TRL runner compatibility, and processing class fallback checks.
 
 ## Dependencies
 

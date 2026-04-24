@@ -1,6 +1,6 @@
 # Lite-LLM
 
-从零（from-scratch）预训练一个 **~1.5B 参数的因果语言模型** 的工程脚手架。模型架构是 Llama 风格的 decoder-only Transformer：**Multi-head Latent Attention (MLA) + SwiGLU + RoPE + RMSNorm + QK-Norm**，并接入 HuggingFace `Trainer` 生态，支持单机多卡 + DeepSpeed ZeRO-2 训练，内置基于 `transformers.Cache` 的 KV cache 用于推理加速。
+从零（from-scratch）预训练一个 **~1.0B 参数的因果语言模型** 的工程脚手架。模型架构是 Llama 风格的 decoder-only Transformer：**Multi-head Latent Attention (MLA) + SwiGLU + RoPE + RMSNorm + QK-Norm**，并接入 HuggingFace `Trainer` 生态，支持单机多卡 + DeepSpeed ZeRO-2 训练，内置基于 `transformers.Cache` 的 KV cache 用于推理加速。
 
 > 这是**预训练**项目：模型权重完全从随机初始化训出来，不继承任何已有 checkpoint。复用的只是 Qwen 的 tokenizer（vocab.json + merges.txt），目的是省掉自己训 BPE 的力气，并直接拥有覆盖中英代码数学的多语言词表。
 
@@ -31,14 +31,15 @@ lite-llm/
 │       ├── train.py
 │       ├── sft_prepare_data.py  # SFT 数据集下载 → JSONL
 │       ├── sft_train.py
-│       ├── upload_to_hf.py              # 一次性上传 tokenized 数据到 HF Dataset
+│       ├── pack_shards.py               # .npy shard 打包成 ~10GB tar 归档
+│       ├── run_prepare_loop.sh          # prepare_data.py 循环包装（失败自动重跑）
 │       └── upload_checkpoint_to_hf.py   # 训练中定期上传 checkpoint 到 HF Model
 ├── configs/
 │   ├── local/{model,train,sft_model,sft_train}.yaml
 │   └── production/{model,train,sft_train,sft_datasets}.yaml + deepspeed_zero2.json
 ├── tests/
 │   ├── test_training_fixes.py   # 预训练测试（19 个）
-│   └── test_sft.py              # SFT 测试（16 个）
+│   └── test_sft.py              # SFT 测试（37 个）
 ├── pyproject.toml               # uv 管理的依赖
 └── .python-version              # 固定 Python 3.11
 ```
@@ -138,19 +139,21 @@ uv run python scripts/local/train.py
 
 ## 5. 生产数据准备
 
-`scripts/production/prepare_data.py` 按四个类别从公开数据集流式（streaming）拉取，每条样本经质量过滤 → tokenize → 写成 **int32 扁平 token 数组**，每达到 ~50M token 就刷一个 shard 到磁盘（约 200 MB / shard）。
+`scripts/production/prepare_data.py` 按六个数据集从公开数据集逐文件下载、过滤、tokenize，写成 **int32 扁平 token 数组**，每达到 ~5M token 就刷一个 shard 到磁盘（约 20 MB / shard）。数据集规格在 `configs/production/datasets.yaml` 中定义，支持命名过滤器（如 `int_score >= 2`、中文字符占比）。
 
-**默认目标配额**（`CATEGORY_TARGETS`，可改）：
+**数据集配置**（`configs/production/datasets.yaml`）：
 
-| 类别 | 目标 token | 数据源 |
-|---|---|---|
-| English | 2.8B | `HuggingFaceFW/fineweb-edu` (`sample-100BT`, `educational_score ≥ 4`) |
-| Chinese | 2.8B | `opencsg/Fineweb-Edu-Chinese-V2.1` + `Skywork/SkyPile-150B`（中文字符占比 ≥ 30%） |
-| Code | 0.8B | `bigcode/the-stack-v2-train`（限 Top-10 主流语言） |
-| Math | 1.6B | `HuggingFaceTB/finemath` (`finemath-4plus`) + `open-web-math/open-web-math` |
-| **总计** | **8B** | |
+| # | 数据集名 | 数据源 | 过滤规则 | 目标 tokens |
+|---|---|---|---|---|
+| 1 | `fineweb_edu` | `HuggingFaceFW/fineweb-edu` | `int_score >= 2` | 8B |
+| 2 | `fineweb_general` | `HuggingFaceFW/fineweb` | 无 | 4B |
+| 3 | `fineweb_edu_chinese` | `opencsg/Fineweb-Edu-Chinese-V2.1` | 中文字符占比 >= 15%，长度 >= 100 | 3.5B |
+| 4 | `finemath_4plus` | `HuggingFaceTB/finemath` (`finemath-4plus`) | 无 | 2B |
+| 5 | `finemath_3plus` | `HuggingFaceTB/finemath` (`finemath-3plus`) | 无 | 1.5B |
+| 6 | `github_code` | `codeparrot/github-code` | `min_doc_length=20` | 800M |
+| | **合计** | | | **~19.8B** |
 
-**Shard 命名 / 续传**：每个数据源写成 `{name}-00000.npy`、`{name}-00001.npy`…，下次重跑时自动从最大 shard 索引继续，已经达标的源直接跳过。这样可以放心断点续传或分多次跑。
+**Shard 命名 / 续传**：每个数据集写成 `{name}-00000.npy`、`{name}-00001.npy`…，下次重跑时自动从最大 shard 索引继续，已经达标的数据集直接跳过。同时记录已处理的 parquet 文件到 `{name}_progress.json`，支持 parquet 级续传。这样可以放心断点续传或分多次跑。
 
 **文档边界**：每篇文档末尾追加一个 `tokenizer.eos_token_id`，用作 packing 阶段的"文档结束"信号。
 
@@ -165,14 +168,17 @@ uv run python scripts/production/prepare_data.py --dry-run
 # 试跑：抽 1% 配额，用于 sanity check
 uv run python scripts/production/prepare_data.py --scale 0.01
 
-# 只跑某些类别
-uv run python scripts/production/prepare_data.py --categories english,math
+# 只跑某些数据集
+uv run python scripts/production/prepare_data.py --datasets fineweb_edu,finemath_4plus
 
-# 改输出目录（必须仍在 ./data/production/ 下）
-uv run python scripts/production/prepare_data.py --output-dir ./data/production/tokenized
+# 仅保存到本地（跳过 HF 上传）
+uv run python scripts/production/prepare_data.py --local-only
+
+# 改输出目录
+uv run python scripts/production/prepare_data.py --output-dir /data/tokenized --local-only
 ```
 
-需要调整数据源 / 过滤规则 / 配额，直接改 `scripts/production/prepare_data.py` 顶部的 `DATASET_SPECS`、`CATEGORY_TARGETS`、`filter_*` 函数即可。
+需要调整数据源 / 过滤规则 / 配额，直接改 `configs/production/datasets.yaml` 即可。
 
 ---
 
@@ -183,13 +189,13 @@ uv run python scripts/production/prepare_data.py --output-dir ./data/production/
 | 字段 | 值 | 说明 |
 |---|---|---|
 | `vocab_size` | 248320 | Qwen tokenizer 长度 248077 向上取到 128 倍数（多留一档余量） |
-| `hidden_size` | 2048 | |
-| `intermediate_size` | 5504 | |
+| `hidden_size` | 1536 | |
+| `intermediate_size` | 4608 | |
 | `num_hidden_layers` | 24 | |
 | `attention_type` | `mla` | Multi-head Latent Attention |
-| `num_attention_heads` | 16 | |
+| `num_attention_heads` | 12 | |
 | `head_dim` | 128 | |
-| `q_lora_rank` / `kv_lora_rank` | 512 / 192 | latent bottleneck rank |
+| `q_lora_rank` / `kv_lora_rank` | 384 / 128 | latent bottleneck rank |
 | `max_position_embeddings` | 8192 | 上下文长度 |
 | `rope_theta` | 10000 | 固定 RoPE base |
 | `qk_norm` | true | Q/K 逐 head RMSNorm |
@@ -198,9 +204,9 @@ uv run python scripts/production/prepare_data.py --output-dir ./data/production/
 **实际参数量**（已验证）：
 
 ```
-total          : 1,499,570,176  (1.500 B)
-  embed/lm_head:   508,559,360  (509 M, tied)
-  non-embed    :   991,010,816  (991 M)
+total          : 990,199,296  (990 M)
+  embed/lm_head: 381,419,520  (381 M, tied)
+  non-embed    : 608,779,776  (609 M)
 ```
 
 ### 6.2 训练配置（`configs/production/train.yaml`）
@@ -209,7 +215,7 @@ total          : 1,499,570,176  (1.500 B)
 
 - **Optimizer**: AdamW，`lr=3e-4`、`weight_decay=0.1`、`betas=(0.9, 0.95)`、`max_grad_norm=1.0`
 - **Scheduler**: cosine，`warmup_ratio=0.05`
-- **Batch**: `per_device=2`，`grad_accum=16`；若按 `8 GPUs` 训练，则每次 optimizer step 约 `2.1M tokens`
+- **Batch**: `per_device=2`，`grad_accum=16`；若按 `4 GPUs` 训练，则每次 optimizer step 约 `1.0M tokens`
 - **Seq length**: 8192
 - **精度**: bf16
 - **显存优化**: HF gradient checkpointing 打开（不在 DeepSpeed 里配，由 `train_runner` 通过 TrainingArguments 启用）
@@ -287,8 +293,6 @@ python scripts/production/upload_checkpoint_to_hf.py \
 | `--interval` | `3600` | 上传间隔（秒） |
 | `--once` | — | 上传一次后退出 |
 | `--private` | — | 建 repo 时设为私有 |
-
-> **与 `upload_to_hf.py` 的区别**：`upload_to_hf.py` 是一次性上传 tokenized `.npy` 数据到 HF **Dataset** repo，与 checkpoint 上传完全独立，互不影响。
 
 ---
 
@@ -415,7 +419,7 @@ uv run python -m unittest tests.test_sft -v
 - **数据**：跨文件 packing 正确、`split_train_val` 从尾部切 eval 且空 val 时返回 `None`、`tokenize_and_save` 在文档间插 EOS、shard 命名 / 续传索引正确、smoke token 全部落在 vocab 内
 - **隔离**：local 与 production 配置 YAML 实际加载后能通过对应的 flow validation
 
-**SFT 测试**（31 个用例）：
+**SFT 测试**（37 个用例）：
 
 - **数据加载**：单文件 JSONL、目录批量加载、空目录报错
 - **数据拆分**：train/val 比例正确、0 比例返回 None
@@ -427,4 +431,4 @@ uv run python -m unittest tests.test_sft -v
 
 ## 12. 许可证与第三方资源
 
-本仓库本身是研究 / 学习用的预训练脚手架。所用的**上游数据集**（FineWeb-Edu, SkyPile, the-Stack v2, FineMath, OpenWebMath 等）和**分词器**（Qwen/Qwen3.5-0.8B）各自遵循其在 HuggingFace Hub 上的 license，商用前请自行核对每个数据源的条款。
+本仓库本身是研究 / 学习用的预训练脚手架。所用的**上游数据集**（FineWeb-Edu, FineWeb, Fineweb-Edu-Chinese, FineMath, GitHub Code 等）和**分词器**（Qwen/Qwen3.5-0.8B）各自遵循其在 HuggingFace Hub 上的 license，商用前请自行核对每个数据源的条款。

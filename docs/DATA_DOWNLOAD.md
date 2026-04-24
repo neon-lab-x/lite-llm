@@ -93,10 +93,10 @@ python scripts/production/prepare_data.py --hf-token $HF_TOKEN
 python scripts/production/prepare_data.py --datasets fineweb_edu --local-only
 
 # 2. fineweb_general (4B tokens, ~16 GB)
-python scripts/production/prepare_data.py --datasets fineweb_general --local-only
+python scripts/production/prepare_data.py --datasets fineweb_general --local-only  --no-mirror
 
 # 3. fineweb_edu_chinese (3.5B tokens, ~14 GB)
-python scripts/production/prepare_data.py --datasets fineweb_edu_chinese --local-only
+python scripts/production/prepare_data.py --datasets fineweb_edu_chinese --local-only  --no-mirror
 
 # 4. finemath_4plus (2B tokens, ~8 GB)
 python scripts/production/prepare_data.py --datasets finemath_4plus --local-only --no-mirror
