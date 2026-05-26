@@ -1,8 +1,6 @@
-# Active default recipe: zh_first_v1_3b.
+# Chinese-first engineering/MVP recipe.
 #
-# This is the engineering/MVP run. It keeps the same source mix as the 20B
-# recipe but scales targets down so the full data->tokenize->train->eval loop is
-# practical before committing to the formal run.
+# Goal: validate the full production data and training chain before the 20B run.
 recipe_name: zh_first_v1_3b
 output_dir: /root/autodl-fs/tokenized_zh_first_3b
 

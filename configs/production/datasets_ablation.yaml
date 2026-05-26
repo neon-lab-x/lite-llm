@@ -1,0 +1,67 @@
+# Small, switchable data slices for controlled data ablations.
+#
+# Use `--datasets` to run one or more named slices, or edit `enabled` to build a
+# custom ablation mix. Keep this separate from the formal 3B/20B recipes.
+recipe_name: zh_first_ablation
+output_dir: /root/autodl-fs/tokenized_ablation
+
+sampling:
+  seed: 20260527
+  file_order: shuffled
+  row_group_order: shuffled
+  row_order: shuffled
+  json_shuffle_buffer: 4096
+
+disk:
+  min_free_gb: 80
+  max_cache_gb: 60
+
+datasets:
+  - name: ablate_zh_fineweb_score3
+    source: opencsg/Fineweb-Edu-Chinese-V2.1
+    target_tokens: 300_000_000
+    text_field: text
+    filters:
+      min_chars: 200
+      max_chars: 12000
+      min_chinese_ratio: 0.35
+      min_quality_score: 3
+      quality_columns: [score, int_score, quality_score]
+      add_eos: true
+
+  - name: ablate_zh_fineweb_score2
+    source: opencsg/Fineweb-Edu-Chinese-V2.1
+    target_tokens: 300_000_000
+    text_field: text
+    filters:
+      min_chars: 200
+      max_chars: 12000
+      min_chinese_ratio: 0.35
+      min_quality_score: 2
+      quality_columns: [score, int_score, quality_score]
+      add_eos: true
+
+  - name: ablate_without_synthetic
+    source: BAAI/CCI3-HQ
+    target_tokens: 300_000_000
+    text_field: text
+    filters:
+      min_chars: 200
+      max_chars: 12000
+      min_chinese_ratio: 0.35
+      add_eos: true
+
+  - name: ablate_synthetic_only
+    source: opencsg/chinese-cosmopedia
+    target_tokens: 300_000_000
+    text_field: text
+    filters:
+      min_chars: 300
+      max_chars: 12000
+      min_chinese_ratio: 0.40
+      add_eos: true
+
+  - name: reserved_domain_experiment
+    source: null
+    target_tokens: 300_000_000
+    enabled: false

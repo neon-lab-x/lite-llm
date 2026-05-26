@@ -160,7 +160,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="Show plan without creating archives")
     parser.add_argument("--dataset", type=str, default=None,
-                        help="Only pack files belonging to this dataset (prefix filter, e.g. fineweb_edu)")
+                        help="Only pack files belonging to this dataset (prefix filter, e.g. zh_fineweb_edu_v21)")
     parser.add_argument("--prefix", type=str, default=ARCHIVE_PREFIX,
                         help=f"Archive filename prefix (default: {ARCHIVE_PREFIX}; auto-set to dataset name when --dataset is used)")
     args = parser.parse_args()

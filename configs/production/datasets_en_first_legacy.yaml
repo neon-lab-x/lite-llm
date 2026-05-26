@@ -1,0 +1,76 @@
+# Legacy English-first recipe kept for ablation and before/after comparisons.
+#
+# This is the original production mix: English web dominates, with Chinese,
+# math, and code as secondary sources.
+recipe_name: en_first_legacy_19_8b
+output_dir: /root/autodl-fs/tokenized_en_first_legacy
+
+sampling:
+  seed: 20260527
+  file_order: shuffled
+  row_group_order: shuffled
+  row_order: shuffled
+  json_shuffle_buffer: 4096
+
+disk:
+  min_free_gb: 80
+  max_cache_gb: 60
+
+filters:
+  fineweb_edu:
+    description: "int_score >= 2"
+    field: int_score
+    op: ">="
+    value: 2
+
+  chinese:
+    description: ">= 15% Chinese characters, >= 100 chars"
+    type: chinese
+    min_length: 100
+    min_ratio: 0.15
+
+datasets:
+  - name: fineweb_edu
+    hf_path: HuggingFaceFW/fineweb-edu
+    split: train
+    text_column: text
+    filter: fineweb_edu
+    target_tokens: 8_000_000_000
+
+  - name: fineweb_general
+    hf_path: HuggingFaceFW/fineweb
+    split: train
+    text_column: text
+    filter: null
+    target_tokens: 4_000_000_000
+
+  - name: fineweb_edu_chinese
+    hf_path: opencsg/Fineweb-Edu-Chinese-V2.1
+    split: train
+    text_column: text
+    filter: chinese
+    target_tokens: 3_500_000_000
+
+  - name: finemath_4plus
+    hf_path: HuggingFaceTB/finemath
+    config: finemath-4plus
+    split: train
+    text_column: text
+    filter: null
+    target_tokens: 2_000_000_000
+
+  - name: finemath_3plus
+    hf_path: HuggingFaceTB/finemath
+    config: finemath-3plus
+    split: train
+    text_column: text
+    filter: null
+    target_tokens: 1_500_000_000
+
+  - name: github_code
+    hf_path: codeparrot/github-code
+    split: train
+    text_column: content
+    filter: null
+    min_doc_length: 20
+    target_tokens: 800_000_000

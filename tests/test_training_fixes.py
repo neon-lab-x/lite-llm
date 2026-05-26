@@ -1,4 +1,5 @@
 import os
+import importlib.util
 import tempfile
 import unittest
 from unittest.mock import MagicMock
@@ -33,6 +34,14 @@ from lite_llm.token_storage import (
 from lite_llm.train_runner import find_last_checkpoint
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def _load_prepare_data_module():
+    path = os.path.join(PROJECT_ROOT, "scripts", "production", "prepare_data.py")
+    spec = importlib.util.spec_from_file_location("production_prepare_data", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _make_tiny_config(**overrides) -> LiteLlmConfig:
@@ -254,6 +263,76 @@ class TrainingFixesTest(unittest.TestCase):
             )
             self.assertEqual([count_tokens_in_file(path) for path in files], [3, 2])
 
+    def test_production_prepare_orders_files_with_stable_shuffle(self):
+        prep = _load_prepare_data_module()
+        files = [{"path": f"data/{i:03d}.parquet", "size": i} for i in range(10)]
+        spec = {
+            "name": "sample",
+            "hf_path": "example/repo",
+            "sampling": {"seed": 123, "file_order": "shuffled"},
+        }
+
+        first = prep._order_data_files(files, spec)
+        second = prep._order_data_files(list(reversed(files)), spec)
+
+        self.assertEqual(first, second)
+        self.assertNotEqual([f["path"] for f in first], sorted(f["path"] for f in files))
+
+    def test_production_prepare_inline_filters_use_text_and_quality(self):
+        prep = _load_prepare_data_module()
+        text = "中文内容" * 80
+        cfg = {
+            "min_chinese_ratio": 0.30,
+            "min_length": 100,
+            "max_length": 1000,
+            "min_quality_score": 2,
+            "quality_columns": ["score"],
+        }
+
+        self.assertTrue(prep._passes_filter_config({"score": 2.5}, text, cfg))
+        self.assertFalse(prep._passes_filter_config({"score": 1.0}, text, cfg))
+        self.assertFalse(prep._passes_filter_config({"score": 3.0}, "mostly ascii", cfg))
+
+    def test_production_prepare_extracts_first_available_text_column(self):
+        prep = _load_prepare_data_module()
+        spec = {"text_columns": ["text", "content"]}
+
+        self.assertEqual(
+            prep._extract_text({"content": "fallback text"}, spec),
+            "fallback text",
+        )
+
+    def test_production_prepare_normalizes_recipe_aliases(self):
+        prep = _load_prepare_data_module()
+
+        specs = prep.build_specs({
+            "sampling": {"seed": 1},
+            "datasets": [
+                {
+                    "name": "sample",
+                    "source": "org/repo",
+                    "subset": "subset-name",
+                    "text_field": "body",
+                    "target_tokens": 100,
+                    "filters": {"min_chars": 10, "max_chars": 100, "add_eos": True},
+                },
+                {
+                    "name": "disabled",
+                    "source": None,
+                    "target_tokens": 100,
+                    "enabled": False,
+                },
+            ],
+        })
+
+        self.assertEqual(len(specs), 1)
+        self.assertEqual(specs[0]["hf_path"], "org/repo")
+        self.assertEqual(specs[0]["config"], "subset-name")
+        self.assertEqual(specs[0]["text_column"], "body")
+        self.assertEqual(specs[0]["filter_config"]["min_length"], 10)
+        self.assertEqual(specs[0]["filter_config"]["max_length"], 100)
+        self.assertTrue(specs[0]["add_eos"])
+
     def test_local_smoke_tokens_stay_in_vocab(self):
         tokens = build_tokens()
 
@@ -276,6 +355,15 @@ class TrainingFixesTest(unittest.TestCase):
             model_cfg = yaml.safe_load(f)
 
         validate_production_train_config(train_cfg, model_cfg)
+
+    def test_zh_first_production_train_configs_are_isolated(self):
+        with open(os.path.join(PROJECT_ROOT, "configs", "production", "model.yaml"), "r") as f:
+            model_cfg = yaml.safe_load(f)
+
+        for filename in ("train_zh_first_3b.yaml", "train_zh_first_20b.yaml"):
+            with open(os.path.join(PROJECT_ROOT, "configs", "production", filename), "r") as f:
+                train_cfg = yaml.safe_load(f)
+            validate_production_train_config(train_cfg, model_cfg)
 
 
 if __name__ == "__main__":

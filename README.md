@@ -36,9 +36,9 @@ lite-llm/
 │       └── upload_checkpoint_to_hf.py   # 训练中定期上传 checkpoint 到 HF Model
 ├── configs/
 │   ├── local/{model,train,sft_model,sft_train}.yaml
-│   └── production/{model,train,sft_train,sft_datasets}.yaml + deepspeed_zero2.json
+│   └── production/{model,train,datasets*,sft_train,sft_datasets}.yaml + deepspeed_zero2.json
 ├── tests/
-│   ├── test_training_fixes.py   # 预训练测试（19 个）
+│   ├── test_training_fixes.py   # 预训练测试（24 个）
 │   └── test_sft.py              # SFT 测试（37 个）
 ├── pyproject.toml               # uv 管理的依赖
 └── .python-version              # 固定 Python 3.11
@@ -139,21 +139,40 @@ uv run python scripts/local/train.py
 
 ## 5. 生产数据准备
 
-`scripts/production/prepare_data.py` 按六个数据集从公开数据集逐文件下载、过滤、tokenize，写成 **int32 扁平 token 数组**，每达到 ~5M token 就刷一个 shard 到磁盘（约 20 MB / shard）。数据集规格在 `configs/production/datasets.yaml` 中定义，支持命名过滤器（如 `int_score >= 2`、中文字符占比）。
+`scripts/production/prepare_data.py` 按中文优先配方从公开数据集逐文件下载、过滤、tokenize，写成 **int32 扁平 token 数组**，每达到 ~5M token 就刷一个 shard 到磁盘（约 20 MB / shard）。数据集规格可通过 `--datasets-config` 指定，默认使用 `configs/production/datasets.yaml`，也就是 3B MVP 配方。
 
-**数据集配置**（`configs/production/datasets.yaml`）：
+现有 recipe：
+
+| 配置文件 | 用途 |
+|---|---|
+| `configs/production/datasets.yaml` | 当前默认，等同 `zh_first_v1_3b` |
+| `configs/production/datasets_zh_first_3b.yaml` | 3B token 工程验证版 |
+| `configs/production/datasets_zh_first_20b.yaml` | 20B 正式中文优先版（19B active + 1B reserved） |
+| `configs/production/datasets_ablation.yaml` | 小规模消融实验池 |
+| `configs/production/datasets_en_first_legacy.yaml` | 原英文主导配方，保留作对比 |
+
+为避免“只取字典序靠前 shard”的偏差，生产脚本会用固定 seed 对每个数据集的文件顺序、parquet row group 顺序、row 顺序做确定性打乱。这样 3B MVP 跑到的是全数据源的均匀样本，而不是某个文件名前缀切片。
+
+磁盘保护默认写在各 dataset recipe 的 `disk` 区块：至少保留 80 GB 空闲空间，临时 HF 下载缓存上限 60 GB。每个源文件处理完后会清理独立下载缓存，避免 HF blob cache 在 400 GB 机器上越积越多。
+
+**3B MVP 配方**（`configs/production/datasets_zh_first_3b.yaml`）：
 
 | # | 数据集名 | 数据源 | 过滤规则 | 目标 tokens |
 |---|---|---|---|---|
-| 1 | `fineweb_edu` | `HuggingFaceFW/fineweb-edu` | `int_score >= 2` | 8B |
-| 2 | `fineweb_general` | `HuggingFaceFW/fineweb` | 无 | 4B |
-| 3 | `fineweb_edu_chinese` | `opencsg/Fineweb-Edu-Chinese-V2.1` | 中文字符占比 >= 15%，长度 >= 100 | 3.5B |
-| 4 | `finemath_4plus` | `HuggingFaceTB/finemath` (`finemath-4plus`) | 无 | 2B |
-| 5 | `finemath_3plus` | `HuggingFaceTB/finemath` (`finemath-3plus`) | 无 | 1.5B |
-| 6 | `github_code` | `codeparrot/github-code` | `min_doc_length=20` | 800M |
-| | **合计** | | | **~19.8B** |
+| 1 | `zh_fineweb_edu_v21` | `opencsg/Fineweb-Edu-Chinese-V2.1` | 中文占比 >= 35%，长度 200-12000，质量分 >= 3 | 1.4B |
+| 2 | `baai_cci3_hq` | `BAAI/CCI3-HQ` | 中文占比 >= 35%，长度 200-12000 | 500M |
+| 3 | `skypile_150b` | `Skywork/SkyPile-150B` | 中文占比 >= 35%，长度 200-12000 | 300M |
+| 4 | `zh_cosmopedia` | `opencsg/chinese-cosmopedia` | 中文占比 >= 40%，长度 300-12000 | 200M |
+| 5 | `en_fineweb_edu` | `HuggingFaceFW/fineweb-edu` | 长度 200-12000，质量分 >= 3 | 200M |
+| 6 | `finemath_4plus` | `HuggingFaceTB/finemath` (`finemath-4plus`) | 长度 200-16000 | 250M |
+| 7 | `github_code_clean` | `codeparrot/github-code-clean` | 长度 100-20000，白名单语言 | 150M |
+| | **合计** | | | **3B** |
 
-**Shard 命名 / 续传**：每个数据集写成 `{name}-00000.npy`、`{name}-00001.npy`…，下次重跑时自动从最大 shard 索引继续，已经达标的数据集直接跳过。同时记录已处理的 parquet 文件到 `{name}_progress.json`，支持 parquet 级续传。这样可以放心断点续传或分多次跑。
+**20B 正式配方**（`configs/production/datasets_zh_first_20b.yaml`）：同一套来源与过滤规则，active target 为 FineWeb-Edu Chinese 9B、CCI3-HQ 3B、SkyPile 2B、Chinese Cosmopedia 1.2B、English FineWeb-Edu 1.2B、FineMath 1.6B、GitHub Code Clean 1B；另保留 1B `reserved_experiment` 关闭项用于后续领域消融。
+
+`BAAI/CCI3-HQ` 是 gated dataset；第一次使用前需要在 HuggingFace 页面同意条款，`--local-only` 下载时也可以传 `--hf-token` 供读取使用。
+
+**Shard 命名 / 续传**：每个数据集写成 `{name}-00000.npy`、`{name}-00001.npy`…，下次重跑时自动从最大 shard 索引继续，已经达标的数据集直接跳过。同时记录已处理的数据文件到 `_cache/state/{name}_progress.json`，支持文件级续传。若一次小规模 run 在某个打乱后的文件中间达到 target，该文件会被标记为已消费，后续扩大 `--scale` 时避免重复样本。
 
 **文档边界**：每篇文档末尾追加一个 `tokenizer.eos_token_id`，用作 packing 阶段的"文档结束"信号。
 
@@ -162,23 +181,50 @@ uv run python scripts/local/train.py
 **常用命令**：
 
 ```bash
-# 估算磁盘 / token 规模，不实际下载
-uv run python scripts/production/prepare_data.py --dry-run
+# 只看计划：远端文件数量/大小、目标 token、预计本地 shard 磁盘；不下载 tokenizer 或数据文件
+uv run python scripts/production/prepare_data.py --plan-only
 
-# 试跑：抽 1% 配额，用于 sanity check
-uv run python scripts/production/prepare_data.py --scale 0.01
-
-# 只跑某些数据集
-uv run python scripts/production/prepare_data.py --datasets fineweb_edu,finemath_4plus
-
-# 仅保存到本地（跳过 HF 上传）
+# 3B MVP：默认 recipe 就是 zh_first_v1_3b
 uv run python scripts/production/prepare_data.py --local-only
 
-# 改输出目录
-uv run python scripts/production/prepare_data.py --output-dir /data/tokenized --local-only
+# 显式指定 3B recipe
+uv run python scripts/production/prepare_data.py \
+  --datasets-config configs/production/datasets_zh_first_3b.yaml \
+  --hf-token $HF_TOKEN \
+  --local-only
+
+# 正式 20B recipe
+uv run python scripts/production/prepare_data.py \
+  --datasets-config configs/production/datasets_zh_first_20b.yaml \
+  --hf-token $HF_TOKEN \
+  --local-only
+
+# 下载并上传 tokenized shard 到 HF Dataset repo
+uv run python scripts/production/prepare_data.py \
+  --datasets-config configs/production/datasets_zh_first_3b.yaml \
+  --hf-token $HF_TOKEN \
+  --hf-repo username/lite-llm-tokenized \
+  --hf-path zh_first_v1_3b \
+  --keep-uploaded
+
+# 消融实验：只跑指定 slice
+uv run python scripts/production/prepare_data.py \
+  --datasets-config configs/production/datasets_ablation.yaml \
+  --datasets ablate_zh_fineweb_score3 \
+  --local-only
+
+# 改输出目录和磁盘水位
+uv run python scripts/production/prepare_data.py \
+  --datasets-config configs/production/datasets_zh_first_3b.yaml \
+  --output-dir /data/tokenized \
+  --min-free-gb 80 \
+  --max-cache-gb 60 \
+  --local-only
 ```
 
-需要调整数据源 / 过滤规则 / 配额，直接改 `configs/production/datasets.yaml` 即可。
+需要调整数据源 / 过滤规则 / 配额，优先复制 `datasets_zh_first_3b.yaml` 或 `datasets_zh_first_20b.yaml` 新建 recipe，不要覆盖 legacy 配方。
+
+旧的 `scripts/fast_prepare.py` 已停用；它使用 streaming 原始顺序，局部下载时容易重新引入数据源顺序偏差。生产数据准备统一走 `scripts/production/prepare_data.py`。
 
 ---
 
@@ -209,7 +255,7 @@ total          : 990,199,296  (990 M)
   non-embed    : 608,779,776  (609 M)
 ```
 
-### 6.2 训练配置（`configs/production/train.yaml`）
+### 6.2 训练配置
 
 要点：
 
@@ -224,25 +270,29 @@ total          : 990,199,296  (990 M)
 - **断点续训**: `resume_from_last_checkpoint=true`，启动时 `train_runner` 自动找 `output_dir` 下最大 step 的 `checkpoint-*` 恢复
 - **DeepSpeed**: ZeRO-2（`configs/production/deepspeed_zero2.json`），优化器和参数都不 offload，开启 `overlap_comm` / `reduce_scatter` / `contiguous_gradients`
 
+训练 recipe：
+
+| 配置文件 | 数据目录 | checkpoint 目录 | eval/save 间隔 |
+|---|---|---|---|
+| `configs/production/train_zh_first_3b.yaml` | `/root/autodl-fs/tokenized_zh_first_3b` | `./artifacts/production/checkpoints_zh_first_3b` | 500 steps |
+| `configs/production/train_zh_first_20b.yaml` | `/root/autodl-fs/tokenized_zh_first_20b` | `./artifacts/production/checkpoints_zh_first_20b` | 2000 steps |
+| `configs/production/train.yaml` | `/root/autodl-fs/tokenized` | `./artifacts/production/checkpoints` | 2000 steps |
+
 ### 6.3 启动
 
 ```bash
-# 单机多卡（DeepSpeed ZeRO-2，推荐）
-uv run deepspeed scripts/production/train.py
+# 3B MVP 训练
+uv run deepspeed scripts/production/train.py \
+  --train-config configs/production/train_zh_first_3b.yaml \
+  --model-config configs/production/model.yaml
 
-# 不用 DeepSpeed：把 train.yaml 里的 deepspeed 字段去掉再启动
-uv run python scripts/production/train.py
-```
-
-显式指定配置文件（默认用 `configs/production/{train,model}.yaml`）：
-
-```bash
-uv run python scripts/production/train.py \
-  --train-config configs/production/train.yaml \
+# 20B 正式训练
+uv run deepspeed scripts/production/train.py \
+  --train-config configs/production/train_zh_first_20b.yaml \
   --model-config configs/production/model.yaml
 ```
 
-训练结束后，最终权重写到 `./artifacts/production/checkpoints/final/`，并把 tokenizer 一起序列化进去，方便后续 `AutoTokenizer.from_pretrained(...)` 直接加载。
+不使用 DeepSpeed 时，把对应 train config 里的 `deepspeed` 字段去掉，再用 `uv run python scripts/production/train.py ...` 启动。训练结束后，最终权重写到对应 `output_dir/final/`，并把 tokenizer 一起序列化进去，方便后续 `AutoTokenizer.from_pretrained(...)` 直接加载。
 
 ### 6.4 训练日志
 
@@ -271,12 +321,13 @@ export HF_TOKEN=hf_xxxxxxxxxxxx
 
 python scripts/production/upload_checkpoint_to_hf.py \
     --repo username/lite-llm-checkpoints \
+    --config configs/production/train_zh_first_3b.yaml \
     --interval 3600          # 秒，默认 3600（1 小时）
 ```
 
 脚本行为：
 
-- 扫描 `output_dir`（默认从 `configs/production/train.yaml` 读取）下 step 编号最大、且 `trainer_state.json` 存在（写完整）的 `checkpoint-*` 目录
+- 扫描 `output_dir`（默认从 `configs/production/train.yaml` 读取；3B/20B recipe 建议传对应 `--config`）下 step 编号最大、且 `trainer_state.json` 存在（写完整）的 `checkpoint-*` 目录
 - 已上传过同一 step 直接跳过，**幂等**，可重启不重传
 - 上传失败只打警告，不阻断训练，下次仍会重试
 - `--once` 参数可一次性手动触发（适合 cron 调度）
@@ -412,11 +463,11 @@ uv run python -m unittest tests.test_training_fixes -v
 uv run python -m unittest tests.test_sft -v
 ```
 
-**预训练测试**（19 个用例）：
+**预训练测试**（24 个用例）：
 
 - **建模**：weight tying 真共享一份 storage、residual 投影 init 后被缩小、tiny 模型在固定 batch 上 loss 单调下降、`generate` 走 KV cache 路径不报错、RoPE 与手算公式数值一致、RoPE 不改变向量 norm
 - **训练管线**：`gradient_checkpointing_enable` 后能正常 backward、`find_last_checkpoint` 按 step 数值排序而非字典序
-- **数据**：跨文件 packing 正确、`split_train_val` 从尾部切 eval 且空 val 时返回 `None`、`tokenize_and_save` 在文档间插 EOS、shard 命名 / 续传索引正确、smoke token 全部落在 vocab 内
+- **数据**：跨文件 packing 正确、`split_train_val` 从尾部切 eval 且空 val 时返回 `None`、`tokenize_and_save` 在文档间插 EOS、shard 命名 / 续传索引正确、生产数据文件顺序可复现打乱、inline 过滤器与 recipe 字段别名正确、text 列 fallback 正确、smoke token 全部落在 vocab 内
 - **隔离**：local 与 production 配置 YAML 实际加载后能通过对应的 flow validation
 
 **SFT 测试**（37 个用例）：
@@ -431,4 +482,4 @@ uv run python -m unittest tests.test_sft -v
 
 ## 12. 许可证与第三方资源
 
-本仓库本身是研究 / 学习用的预训练脚手架。所用的**上游数据集**（FineWeb-Edu, FineWeb, Fineweb-Edu-Chinese, FineMath, GitHub Code 等）和**分词器**（Qwen/Qwen3.5-0.8B）各自遵循其在 HuggingFace Hub 上的 license，商用前请自行核对每个数据源的条款。
+本仓库本身是研究 / 学习用的预训练脚手架。所用的**上游数据集**（OpenCSG Chinese FineWeb Edu、BAAI CCI3-HQ、SkyPile、ChineseWebText2.0、Chinese Cosmopedia、FineWeb-Edu、FineMath、GitHub Code 等）和**分词器**（Qwen/Qwen3.5-0.8B）各自遵循其在 HuggingFace Hub 上的 license。部分数据集可能需要登录、同意使用条款或额外商用许可，正式训练前请逐项核对。

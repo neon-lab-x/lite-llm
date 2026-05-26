@@ -1,10 +1,7 @@
-# Active default recipe: zh_first_v1_3b.
-#
-# This is the engineering/MVP run. It keeps the same source mix as the 20B
-# recipe but scales targets down so the full data->tokenize->train->eval loop is
-# practical before committing to the formal run.
-recipe_name: zh_first_v1_3b
-output_dir: /root/autodl-fs/tokenized_zh_first_3b
+# Chinese-first formal pretraining recipe for the ~1.0B Lite-LLM base model.
+# Active target is 19B tokens plus a disabled 1B reserved experiment slot.
+recipe_name: zh_first_v1_20b
+output_dir: /root/autodl-fs/tokenized_zh_first_20b
 
 sampling:
   seed: 20260527
@@ -20,7 +17,7 @@ disk:
 datasets:
   - name: zh_fineweb_edu_v21
     source: opencsg/Fineweb-Edu-Chinese-V2.1
-    target_tokens: 1_400_000_000
+    target_tokens: 9_000_000_000
     text_field: text
     filters:
       min_chars: 200
@@ -32,7 +29,7 @@ datasets:
 
   - name: baai_cci3_hq
     source: BAAI/CCI3-HQ
-    target_tokens: 500_000_000
+    target_tokens: 3_000_000_000
     text_field: text
     filters:
       min_chars: 200
@@ -43,7 +40,7 @@ datasets:
 
   - name: skypile_150b
     source: Skywork/SkyPile-150B
-    target_tokens: 300_000_000
+    target_tokens: 2_000_000_000
     text_field: text
     filters:
       min_chars: 200
@@ -53,7 +50,7 @@ datasets:
 
   - name: zh_cosmopedia
     source: opencsg/chinese-cosmopedia
-    target_tokens: 200_000_000
+    target_tokens: 1_200_000_000
     text_field: text
     filters:
       min_chars: 300
@@ -63,7 +60,7 @@ datasets:
 
   - name: en_fineweb_edu
     source: HuggingFaceFW/fineweb-edu
-    target_tokens: 200_000_000
+    target_tokens: 1_200_000_000
     text_field: text
     filters:
       min_chars: 200
@@ -75,7 +72,7 @@ datasets:
   - name: finemath_4plus
     source: HuggingFaceTB/finemath
     subset: finemath-4plus
-    target_tokens: 250_000_000
+    target_tokens: 1_600_000_000
     text_field: text
     filters:
       min_chars: 200
@@ -84,7 +81,7 @@ datasets:
 
   - name: github_code_clean
     source: codeparrot/github-code-clean
-    target_tokens: 150_000_000
+    target_tokens: 1_000_000_000
     text_columns: [code, content, text]
     filters:
       min_chars: 100
@@ -100,3 +97,8 @@ datasets:
         - C++
         - Markdown
       add_eos: true
+
+  - name: reserved_experiment
+    source: null
+    target_tokens: 1_000_000_000
+    enabled: false

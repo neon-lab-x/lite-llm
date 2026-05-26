@@ -1,0 +1,53 @@
+# Production training config for zh_first_v1_20b.
+
+# --- Output ---
+output_dir: "./artifacts/production/checkpoints_zh_first_20b"
+resume_from_last_checkpoint: true
+seed: 42
+
+# --- Data ---
+max_seq_length: 8192
+data_dir: "/root/autodl-fs/tokenized_zh_first_20b"
+tokenizer_name: "Qwen/Qwen3.5-0.8B"
+val_fraction: 0.005
+max_val_tokens: 50000000
+eval_strategy: "steps"
+eval_steps: 2000
+per_device_eval_batch_size: 2
+
+# --- Optimizer ---
+learning_rate: 3.0e-4
+weight_decay: 0.1
+adam_beta1: 0.9
+adam_beta2: 0.95
+max_grad_norm: 1.0
+
+# --- Scheduler ---
+lr_scheduler_type: "cosine"
+warmup_ratio: 0.05
+
+# --- Batch ---
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 16
+
+# --- Precision ---
+bf16: true
+gradient_checkpointing: true
+use_cpu: false
+
+# --- Runtime ---
+num_train_epochs: 1
+dataloader_num_workers: 4
+dataloader_pin_memory: true
+
+# --- Logging ---
+logging_steps: 10
+logging_dir: "./artifacts/production/logs_zh_first_20b"
+report_to: "wandb"
+
+# --- Checkpointing ---
+save_steps: 2000
+save_total_limit: 5
+
+# --- DeepSpeed ---
+deepspeed: "configs/production/deepspeed_zero2.json"
