@@ -12,19 +12,6 @@ def _require_prefix(path: str, prefix: str, label: str):
         raise ValueError(f"{label} must stay under {prefix}, got {path}")
 
 
-def _require_prefix_any(path: str, prefixes: list[str], label: str):
-    """Path must be under at least one of the given prefixes."""
-    for prefix in prefixes:
-        resolved = os.path.realpath(path)
-        prefix_resolved = os.path.realpath(prefix)
-        try:
-            common = os.path.commonpath([resolved, prefix_resolved])
-        except ValueError:
-            common = ""
-        if common == prefix_resolved:
-            return
-    raise ValueError(f"{label} must be under one of {prefixes}, got {path}")
-
 
 def validate_local_train_config(train_cfg: dict, model_cfg: dict):
     if train_cfg.get("use_cpu") is not True:
@@ -52,9 +39,9 @@ def validate_production_train_config(train_cfg: dict, model_cfg: dict):
         raise ValueError("Production flow requires a DeepSpeed config.")
     if train_cfg.get("resume_from_last_checkpoint") is not True:
         raise ValueError("Production flow should auto-resume from the latest checkpoint.")
-    _require_prefix_any(
+    _require_prefix(
         train_cfg["data_dir"],
-        ["./data/production/", "/root/autodl-tmp/", "/root/autodl-fs/"],
+        "./data/production/",
         "Production data_dir",
     )
     _require_prefix(train_cfg["output_dir"], "./artifacts/production/", "Production output_dir")
@@ -66,51 +53,3 @@ def validate_production_train_config(train_cfg: dict, model_cfg: dict):
         )
     if model_cfg["vocab_size"] < 10000:
         raise ValueError("Production flow should use the full tokenizer/model vocab.")
-
-
-# ---------------------------------------------------------------------------
-# SFT validators
-# ---------------------------------------------------------------------------
-
-def validate_local_sft_config(train_cfg: dict, model_cfg: dict):
-    if train_cfg.get("use_cpu") is not True:
-        raise ValueError("Local SFT flow must run with use_cpu=true.")
-    if not train_cfg.get("tokenizer_name"):
-        raise ValueError("Local SFT flow requires tokenizer_name (needed for chat template).")
-    if train_cfg.get("deepspeed"):
-        raise ValueError("Local SFT flow must not enable DeepSpeed.")
-    if train_cfg.get("resume_from_last_checkpoint") not in (False, None):
-        raise ValueError("Local SFT flow should start clean and not auto-resume checkpoints.")
-    _require_prefix(train_cfg["data_dir"], "./data/local_smoke/", "Local SFT data_dir")
-    _require_prefix(train_cfg["output_dir"], "./artifacts/local/", "Local SFT output_dir")
-    if "logging_dir" in train_cfg:
-        _require_prefix(train_cfg["logging_dir"], "./artifacts/local/", "Local SFT logging_dir")
-    pretrained = train_cfg.get("pretrained_model_path")
-    if not pretrained:
-        raise ValueError("Local SFT flow requires pretrained_model_path.")
-    _require_prefix(pretrained, "./artifacts/local/", "Local SFT pretrained_model_path")
-
-
-def validate_production_sft_config(train_cfg: dict, model_cfg: dict):
-    if train_cfg.get("use_cpu", False):
-        raise ValueError("Production SFT flow must not be pinned to CPU.")
-    if not train_cfg.get("tokenizer_name"):
-        raise ValueError("Production SFT flow requires tokenizer_name.")
-    if not train_cfg.get("deepspeed"):
-        raise ValueError("Production SFT flow requires a DeepSpeed config.")
-    if train_cfg.get("resume_from_last_checkpoint") is not True:
-        raise ValueError("Production SFT flow should auto-resume from the latest checkpoint.")
-    _require_prefix(train_cfg["data_dir"], "./data/production/", "Production SFT data_dir")
-    _require_prefix(train_cfg["output_dir"], "./artifacts/production/", "Production SFT output_dir")
-    if "logging_dir" in train_cfg:
-        _require_prefix(
-            train_cfg["logging_dir"],
-            "./artifacts/production/",
-            "Production SFT logging_dir",
-        )
-    pretrained = train_cfg.get("pretrained_model_path")
-    if not pretrained:
-        raise ValueError("Production SFT flow requires pretrained_model_path.")
-    _require_prefix(pretrained, "./artifacts/production/", "Production SFT pretrained_model_path")
-    if model_cfg["vocab_size"] < 10000:
-        raise ValueError("Production SFT flow should use the full tokenizer/model vocab.")

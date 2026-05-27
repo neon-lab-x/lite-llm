@@ -2,7 +2,8 @@
 #
 # Goal: validate the full production data and training chain before the 20B run.
 recipe_name: zh_first_v1_3b
-output_dir: /root/autodl-fs/tokenized_zh_first_3b
+raw_output_dir: data/production/raw_zh_first_3b
+output_dir: data/production/tokenized_zh_first_3b
 
 sampling:
   seed: 20260527
@@ -24,8 +25,8 @@ datasets:
       min_chars: 200
       max_chars: 12000
       min_chinese_ratio: 0.35
-      min_quality_score: 3
-      quality_columns: [score, int_score, quality_score]
+      min_quality_score: 0.5
+      quality_columns: [score]
       add_eos: true
 
   - name: baai_cci3_hq

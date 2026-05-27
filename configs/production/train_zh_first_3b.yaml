@@ -7,7 +7,7 @@ seed: 42
 
 # --- Data ---
 max_seq_length: 8192
-data_dir: "/root/autodl-fs/tokenized_zh_first_3b"
+data_dir: "./data/production/tokenized_zh_first_3b"
 tokenizer_name: "Qwen/Qwen3.5-0.8B"
 val_fraction: 0.005
 max_val_tokens: 15000000

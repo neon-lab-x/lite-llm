@@ -3,6 +3,7 @@
 # This is the original production mix: English web dominates, with Chinese,
 # math, and code as secondary sources.
 recipe_name: en_first_legacy_19_8b
+raw_output_dir: /root/autodl-fs/raw_en_first_legacy
 output_dir: /root/autodl-fs/tokenized_en_first_legacy
 
 sampling:

@@ -14,32 +14,27 @@ lite-llm/
 │   ├── configuration.py         # LiteLlmConfig（PretrainedConfig 子类）
 │   ├── modeling.py              # LiteLlmForCausalLM（PreTrainedModel + GenerationMixin）
 │   ├── data_utils.py            # PretrainDataset / DataCollator / split_train_val
-│   ├── sft_data_utils.py        # SFT 数据加载 / ChatML 格式校验
 │   ├── train_runner.py          # 预训练共享入口（YAML → Trainer）
-│   ├── sft_runner.py            # SFT 入口（TRL SFTTrainer + loss masking）
-│   ├── flow_validation.py       # 隔离 local / production / pretrain / SFT 的硬规则
+│   ├── flow_validation.py       # 隔离 local / production 的硬规则
 │   ├── token_storage.py         # 生产数据 shard 命名 / 续传辅助
 │   └── local_smoke.py           # 本地确定性 smoke 数据生成
 ├── scripts/
 │   ├── local/                   # 本地 CPU smoke flow
 │   │   ├── prepare_data.py
-│   │   ├── train.py
-│   │   ├── sft_prepare_data.py  # SFT smoke 数据 + dummy checkpoint
-│   │   └── sft_train.py
+│   │   └── train.py
 │   └── production/              # 生产 GPU + DeepSpeed flow
 │       ├── prepare_data.py
+│       ├── download_data.py             # HF 源数据 → 本地筛选 raw parquet
+│       ├── tokenize_raw_data.py         # 本地 raw parquet → token shard
 │       ├── train.py
-│       ├── sft_prepare_data.py  # SFT 数据集下载 → JSONL
-│       ├── sft_train.py
 │       ├── pack_shards.py               # .npy shard 打包成 ~10GB tar 归档
 │       ├── run_prepare_loop.sh          # prepare_data.py 循环包装（失败自动重跑）
 │       └── upload_checkpoint_to_hf.py   # 训练中定期上传 checkpoint 到 HF Model
 ├── configs/
-│   ├── local/{model,train,sft_model,sft_train}.yaml
-│   └── production/{model,train,datasets*,sft_train,sft_datasets}.yaml + deepspeed_zero2.json
+│   ├── local/{model,train}.yaml
+│   └── production/{model,train,datasets*}.yaml + deepspeed_zero2.json
 ├── tests/
-│   ├── test_training_fixes.py   # 预训练测试（24 个）
-│   └── test_sft.py              # SFT 测试（37 个）
+│   └── test_training_fixes.py   # 预训练测试（24 个）
 ├── pyproject.toml               # uv 管理的依赖
 └── .python-version              # 固定 Python 3.11
 ```
@@ -64,21 +59,7 @@ lite-llm/
 | 模型 vocab            | `vocab_size ≤ 4096`              | `vocab_size ≥ 10000`                   |
 | 启动时是否 resume     | 必须 `false`（每次干净重跑）     | 必须 `true`（自动续训）                |
 
-### SFT（监督微调）
-
-|                       | Local (smoke test)              | Production (真实训练)                  |
-|-----------------------|----------------------------------|----------------------------------------|
-| 入口                  | `scripts/local/sft_prepare_data.py` + `sft_train.py` | `scripts/production/sft_prepare_data.py` + `sft_train.py` |
-| 配置                  | `configs/local/{sft_model,sft_train}.yaml` | `configs/production/{sft_train,sft_datasets}.yaml` |
-| 数据目录              | `./data/local_smoke/sft/`        | `./data/production/sft/`               |
-| 产物目录              | `./artifacts/local/sft_*`        | `./artifacts/production/sft_*`         |
-| 设备                  | 必须 `use_cpu=true`              | 必须 `use_cpu=false`                   |
-| Tokenizer             | 必须设置（SFT 需要 chat template） | 必须设置                               |
-| DeepSpeed             | 禁止                             | 必须配置                               |
-| 预训练 checkpoint     | 必须指定（dummy 或真实）         | 必须指向 `./artifacts/production/` 下  |
-| 依赖                  | `uv sync --extra sft`            | `uv sync --extra production --extra sft` |
-
-如果你试图把生产数据指向本地路径、把 DeepSpeed 加进本地配置、或者 SFT flow 缺少 `pretrained_model_path`，启动时会立刻报错。
+如果你试图把生产数据指向本地路径、把 DeepSpeed 加进本地配置，启动时会立刻报错。
 
 ---
 
@@ -90,14 +71,8 @@ lite-llm/
 # 本地开发 / smoke test 用（基础依赖：pytorch, transformers, datasets, pyyaml, accelerate, numpy）
 uv sync
 
-# SFT 微调用（额外加：trl）
-uv sync --extra sft
-
 # 生产训练用（额外加：deepspeed, wandb）
 uv sync --extra production --frozen
-
-# 生产 SFT（两者都需要）
-uv sync --extra production --extra sft --frozen
 ```
 
 依赖版本范围（见 `pyproject.toml`）：
@@ -146,8 +121,8 @@ uv run python scripts/local/train.py
 | 配置文件 | 用途 |
 |---|---|
 | `configs/production/datasets.yaml` | 当前默认，等同 `zh_first_v1_3b` |
-| `configs/production/datasets_zh_first_3b.yaml` | 3B token 工程验证版 |
-| `configs/production/datasets_zh_first_20b.yaml` | 20B 正式中文优先版（19B active + 1B reserved） |
+| `configs/production/datasets_zh_first_3b.yaml` | 3B token 工程验证版，raw 输出到 `data/production/raw_zh_first_3b` |
+| `configs/production/datasets_zh_first_20b.yaml` | 20B 正式中文优先版（19B active + 1B reserved），raw 输出到 `/root/autodl-fs/raw_zh_first_20b` |
 | `configs/production/datasets_ablation.yaml` | 小规模消融实验池 |
 | `configs/production/datasets_en_first_legacy.yaml` | 原英文主导配方，保留作对比 |
 
@@ -172,35 +147,36 @@ uv run python scripts/local/train.py
 
 `BAAI/CCI3-HQ` 是 gated dataset；第一次使用前需要在 HuggingFace 页面同意条款，`--local-only` 下载时也可以传 `--hf-token` 供读取使用。
 
-**Shard 命名 / 续传**：每个数据集写成 `{name}-00000.npy`、`{name}-00001.npy`…，下次重跑时自动从最大 shard 索引继续，已经达标的数据集直接跳过。同时记录已处理的数据文件到 `_cache/state/{name}_progress.json`，支持文件级续传。若一次小规模 run 在某个打乱后的文件中间达到 target，该文件会被标记为已消费，后续扩大 `--scale` 时避免重复样本。
+推荐两段式生产链路：
+
+1. `scripts/production/download_data.py`：从 HF 巨大源数据中按 recipe 过滤出高质量文档，写成本地 raw parquet，并清理下载缓存。
+2. `scripts/production/tokenize_raw_data.py`：完全从本地 raw parquet 做 CPU tokenizer，写 `{name}-00000.npy` 训练 shard，可同时上传 HF Dataset repo。
+
+**Shard 命名 / 续传**：token shard 写成 `{name}-00000.npy`、`{name}-00001.npy`…，下次重跑时自动从最大 shard 索引继续。raw 下载状态写在 raw 目录 `_state/`，tokenize 状态写在 tokenized 目录 `_cache/state/`。
 
 **文档边界**：每篇文档末尾追加一个 `tokenizer.eos_token_id`，用作 packing 阶段的"文档结束"信号。
 
-> **关于 EOS 的取舍**：当前生产配置用的是 chat 版的 `Qwen/Qwen3.5-0.8B`，它的 `eos_token = <|im_end|>`（聊天回合结束符）。chat 版和 base 版（`Qwen/Qwen3.5-0.8B-Base`，`eos_token = <|endoftext|>`）的词表、merges、token id **完全一样**，唯一区别就是 `eos_token` 字段指向哪个 special token。我们已知此处用 chat 版，未来若做 chat-style SFT，需要意识到 `<|im_end|>` 在预训练阶段就被当成"文档分隔符"训练过了。
+> **关于 EOS 的取舍**：当前生产配置用的是 chat 版的 `Qwen/Qwen3.5-0.8B`，它的 `eos_token = <|im_end|>`（聊天回合结束符）。chat 版和 base 版（`Qwen/Qwen3.5-0.8B-Base`，`eos_token = <|endoftext|>`）的词表、merges、token id **完全一样**，唯一区别就是 `eos_token` 字段指向哪个 special token。我们已知此处用 chat 版，未来若做 chat-style 微调，需要意识到 `<|im_end|>` 在预训练阶段就被当成"文档分隔符"训练过了。
 
 **常用命令**：
 
 ```bash
-# 只看计划：远端文件数量/大小、目标 token、预计本地 shard 磁盘；不下载 tokenizer 或数据文件
+# 只看计划：远端文件数量/大小、目标 token、预计本地 shard 磁盘
 uv run python scripts/production/prepare_data.py --plan-only
 
-# 3B MVP：默认 recipe 就是 zh_first_v1_3b
-uv run python scripts/production/prepare_data.py --local-only
-
-# 显式指定 3B recipe
-uv run python scripts/production/prepare_data.py \
+# 3B MVP 第一步：只下载/筛选 raw parquet，不 tokenize
+uv run python scripts/production/download_data.py \
   --datasets-config configs/production/datasets_zh_first_3b.yaml \
   --hf-token $HF_TOKEN \
+  --no-mirror
+
+# 3B MVP 第二步：从本地 raw parquet CPU tokenize，保留本地 shard
+uv run python scripts/production/tokenize_raw_data.py \
+  --datasets-config configs/production/datasets_zh_first_3b.yaml \
   --local-only
 
-# 正式 20B recipe
-uv run python scripts/production/prepare_data.py \
-  --datasets-config configs/production/datasets_zh_first_20b.yaml \
-  --hf-token $HF_TOKEN \
-  --local-only
-
-# 下载并上传 tokenized shard 到 HF Dataset repo
-uv run python scripts/production/prepare_data.py \
+# tokenize 并上传 tokenized shard 到 HF Dataset repo，同时保留本地 shard
+uv run python scripts/production/tokenize_raw_data.py \
   --datasets-config configs/production/datasets_zh_first_3b.yaml \
   --hf-token $HF_TOKEN \
   --hf-repo username/lite-llm-tokenized \
@@ -208,23 +184,22 @@ uv run python scripts/production/prepare_data.py \
   --keep-uploaded
 
 # 消融实验：只跑指定 slice
-uv run python scripts/production/prepare_data.py \
+uv run python scripts/production/download_data.py \
   --datasets-config configs/production/datasets_ablation.yaml \
   --datasets ablate_zh_fineweb_score3 \
-  --local-only
+  --no-mirror
 
-# 改输出目录和磁盘水位
-uv run python scripts/production/prepare_data.py \
+# 改 raw 输出目录和磁盘水位
+uv run python scripts/production/download_data.py \
   --datasets-config configs/production/datasets_zh_first_3b.yaml \
-  --output-dir /data/tokenized \
+  --download-dir /data/raw_zh_first_3b \
   --min-free-gb 80 \
-  --max-cache-gb 60 \
-  --local-only
+  --max-cache-gb 60
 ```
 
 需要调整数据源 / 过滤规则 / 配额，优先复制 `datasets_zh_first_3b.yaml` 或 `datasets_zh_first_20b.yaml` 新建 recipe，不要覆盖 legacy 配方。
 
-旧的 `scripts/fast_prepare.py` 已停用；它使用 streaming 原始顺序，局部下载时容易重新引入数据源顺序偏差。生产数据准备统一走 `scripts/production/prepare_data.py`。
+旧的 `scripts/fast_prepare.py` 已删除；它使用 streaming 原始顺序，局部下载时容易重新引入数据源顺序偏差。生产数据准备统一走 `download_data.py` + `tokenize_raw_data.py`。
 
 ---
 
@@ -274,7 +249,7 @@ total          : 990,199,296  (990 M)
 
 | 配置文件 | 数据目录 | checkpoint 目录 | eval/save 间隔 |
 |---|---|---|---|
-| `configs/production/train_zh_first_3b.yaml` | `/root/autodl-fs/tokenized_zh_first_3b` | `./artifacts/production/checkpoints_zh_first_3b` | 500 steps |
+| `configs/production/train_zh_first_3b.yaml` | `./data/production/tokenized_zh_first_3b` | `./artifacts/production/checkpoints_zh_first_3b` | 500 steps |
 | `configs/production/train_zh_first_20b.yaml` | `/root/autodl-fs/tokenized_zh_first_20b` | `./artifacts/production/checkpoints_zh_first_20b` | 2000 steps |
 | `configs/production/train.yaml` | `/root/autodl-fs/tokenized` | `./artifacts/production/checkpoints` | 2000 steps |
 
@@ -397,70 +372,12 @@ print(tok.decode(out[0], skip_special_tokens=True))
 
 ---
 
-## 10. SFT 监督微调
-
-预训练完成后，可以通过 SFT（Supervised Fine-Tuning）让模型学会对话格式。SFT 使用 TRL 库的 `SFTTrainer`；代码已兼容 TRL 新旧 API：旧版走 `DataCollatorForCompletionOnlyLM`，新版使用项目内兼容 collator 保持 assistant-only loss 行为。
-
-### 10.1 数据格式
-
-SFT 数据采用 OpenAI ChatML 格式（JSONL），每行一条对话：
-
-```json
-{"messages": [{"role": "system", "content": "You are helpful."}, {"role": "user", "content": "你好"}, {"role": "assistant", "content": "你好！有什么可以帮你的？"}]}
-```
-
-支持的字段：`messages`（必需），每条消息包含 `role`（system/user/assistant）和 `content`。Qwen tokenizer 的 `apply_chat_template()` 会自动将其转换为 ChatML 格式（`<|im_start|>system\n...<|im_end|>` 等）。
-
-### 10.2 Loss Masking
-
-无论 TRL 版本，loss masking 的规则一致：在 tokenized 序列中搜索 `<|im_start|>assistant\n`，只保留 assistant 回复内容的 label，其余位置设为 `-100`。模型在 forward 时看到完整上下文，但只在 assistant 回复上计算梯度。
-
-### 10.3 本地 SFT Smoke Test
-
-```bash
-uv sync --extra sft
-
-# 生成 tiny JSONL 数据 + dummy 预训练 checkpoint（random init）
-uv run python scripts/local/sft_prepare_data.py
-
-# 跑 4 步 SFT 训练（CPU，秒级）
-uv run python scripts/local/sft_train.py
-```
-
-本地 SFT 使用 `vocab_size=248320`（匹配 Qwen tokenizer）但保持 tiny 架构（2 层、hidden=64），确保 smoke test 自包含，不依赖真实预训练结果。
-
-### 10.4 生产 SFT
-
-```bash
-uv sync --extra production --extra sft --frozen
-
-# 下载 SFT 数据集并转换为 JSONL
-uv run python scripts/production/sft_prepare_data.py
-
-# 启动 SFT 训练（从预训练 checkpoint 加载）
-uv run deepspeed scripts/production/sft_train.py
-```
-
-SFT 训练配置（`configs/production/sft_train.yaml`）与预训练的关键差异：
-
-| 配置项 | 预训练 | SFT |
-|--------|--------|-----|
-| `learning_rate` | 3e-4 | 2e-5 |
-| `num_train_epochs` | 1 | 3 |
-| `max_seq_length` | 8192 | 4096 |
-| `per_device_train_batch_size` | 2 | 1 |
-| `warmup_ratio` | 0.05 | 0.1 |
-| `pretrained_model_path` | 无（随机初始化） | `./artifacts/production/checkpoints/final` |
-
-数据集规格在 `configs/production/sft_datasets.yaml` 中配置，支持多种 HF 数据集格式（messages 格式直用、OASST 格式自动转换等）。
-
 ---
 
-## 11. 测试
+## 10. 测试
 
 ```bash
 uv run python -m unittest tests.test_training_fixes -v
-uv run python -m unittest tests.test_sft -v
 ```
 
 **预训练测试**（24 个用例）：
@@ -469,14 +386,6 @@ uv run python -m unittest tests.test_sft -v
 - **训练管线**：`gradient_checkpointing_enable` 后能正常 backward、`find_last_checkpoint` 按 step 数值排序而非字典序
 - **数据**：跨文件 packing 正确、`split_train_val` 从尾部切 eval 且空 val 时返回 `None`、`tokenize_and_save` 在文档间插 EOS、shard 命名 / 续传索引正确、生产数据文件顺序可复现打乱、inline 过滤器与 recipe 字段别名正确、text 列 fallback 正确、smoke token 全部落在 vocab 内
 - **隔离**：local 与 production 配置 YAML 实际加载后能通过对应的 flow validation
-
-**SFT 测试**（37 个用例）：
-
-- **数据加载**：单文件 JSONL、目录批量加载、空目录报错
-- **数据拆分**：train/val 比例正确、0 比例返回 None
-- **格式校验**：合法数据通过、缺 messages/role/content 报错
-- **Flow 隔离**：local SFT 要求 tokenizer、禁止 DeepSpeed、要求 pretrained_model_path；production SFT 要求 DeepSpeed、路径隔离（含前缀绕过拦截）
-- **运行兼容性**：校验 `sft_runner` 可导入，避免 TRL API 变更导致训练入口失效
 
 ---
 

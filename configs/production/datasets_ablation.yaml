@@ -3,6 +3,7 @@
 # Use `--datasets` to run one or more named slices, or edit `enabled` to build a
 # custom ablation mix. Keep this separate from the formal 3B/20B recipes.
 recipe_name: zh_first_ablation
+raw_output_dir: /root/autodl-fs/raw_ablation
 output_dir: /root/autodl-fs/tokenized_ablation
 
 sampling:

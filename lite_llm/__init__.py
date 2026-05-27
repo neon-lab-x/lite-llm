@@ -4,10 +4,11 @@ Keep model imports lazy so data-preparation utilities can import lite_llm
 without requiring torch in tokenizer-only environments.
 """
 
-from .configuration import LiteLlmConfig
-
-
 def __getattr__(name):
+    if name == "LiteLlmConfig":
+        from .configuration import LiteLlmConfig
+
+        return LiteLlmConfig
     if name == "LiteLlmForCausalLM":
         from .modeling import LiteLlmForCausalLM
 

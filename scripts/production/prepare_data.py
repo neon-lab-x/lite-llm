@@ -38,8 +38,6 @@ try:
 except ModuleNotFoundError as exc:
     raise SystemExit("Run `uv sync --extra production --frozen` first.") from exc
 
-from transformers import AutoTokenizer
-
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, PROJECT_ROOT)
 
@@ -559,26 +557,11 @@ def _detect_format(path):
 
 
 def _list_repo_file_infos(download_api, hf_path):
-    """Return path/size dicts for files in an HF dataset repo."""
-    try:
-        items = download_api.list_repo_tree(
-            repo_id=hf_path,
-            repo_type="dataset",
-            recursive=True,
-            expand=True,
-        )
-        infos = []
-        for item in items:
-            if getattr(item, "type", None) == "directory":
-                continue
-            path = getattr(item, "path", None)
-            if path:
-                infos.append({"path": path, "size": getattr(item, "size", None)})
-        if infos:
-            return infos
-    except Exception:
-        pass
+    """Return path/size dicts for files in an HF dataset repo.
 
+    Uses list_repo_files for speed; size info is omitted as it's not critical
+    for our workflow and list_repo_tree is extremely slow for large repos.
+    """
     return [
         {"path": path, "size": None}
         for path in download_api.list_repo_files(repo_id=hf_path, repo_type="dataset")
@@ -1188,6 +1171,8 @@ def main():
     )
 
     # Download tokenizer
+    from transformers import AutoTokenizer
+
     print(f"\n[1/2] Downloading tokenizer: {TOKENIZER_NAME} ...")
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME, trust_remote_code=True)
     print(f"      Tokenizer ready (vocab={len(tokenizer):,})")

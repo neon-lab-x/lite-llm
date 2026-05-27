@@ -1,6 +1,7 @@
 # Chinese-first formal pretraining recipe for the ~1.0B Lite-LLM base model.
 # Active target is 19B tokens plus a disabled 1B reserved experiment slot.
 recipe_name: zh_first_v1_20b
+raw_output_dir: /root/autodl-fs/raw_zh_first_20b
 output_dir: /root/autodl-fs/tokenized_zh_first_20b
 
 sampling:

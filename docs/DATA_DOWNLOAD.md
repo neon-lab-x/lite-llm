@@ -85,48 +85,49 @@ uv sync --extra production --frozen
 # 只看计划：列远端文件数量/大小、目标 tokens、预计 shard 磁盘；不下载数据文件
 uv run python scripts/production/prepare_data.py --plan-only
 
-# 3B MVP，本地保存到 /root/autodl-fs/tokenized_zh_first_3b
-uv run python scripts/production/prepare_data.py --local-only
-
-# 显式指定 3B recipe
-uv run python scripts/production/prepare_data.py \
+# 3B MVP 第一步：下载/筛选 raw parquet 到 data/production/raw_zh_first_3b
+uv run python scripts/production/download_data.py \
   --datasets-config configs/production/datasets_zh_first_3b.yaml \
   --hf-token "$HF_TOKEN" \
+  --no-mirror
+
+# 3B MVP 第二步：从本地 raw parquet CPU tokenize
+uv run python scripts/production/tokenize_raw_data.py \
+  --datasets-config configs/production/datasets_zh_first_3b.yaml \
   --local-only
 
-# 正式 20B，本地保存到 /root/autodl-fs/tokenized_zh_first_20b
-uv run python scripts/production/prepare_data.py \
+# 正式 20B 第一步：下载/筛选 raw parquet 到 /root/autodl-fs/raw_zh_first_20b
+uv run python scripts/production/download_data.py \
   --datasets-config configs/production/datasets_zh_first_20b.yaml \
   --hf-token "$HF_TOKEN" \
-  --local-only
+  --no-mirror
 
 # 只跑一部分数据集
-uv run python scripts/production/prepare_data.py \
+uv run python scripts/production/download_data.py \
   --datasets-config configs/production/datasets_zh_first_3b.yaml \
   --datasets zh_fineweb_edu_v21,baai_cci3_hq \
   --hf-token "$HF_TOKEN" \
-  --local-only
+  --no-mirror
 
 # 消融实验
-uv run python scripts/production/prepare_data.py \
+uv run python scripts/production/download_data.py \
   --datasets-config configs/production/datasets_ablation.yaml \
   --datasets ablate_zh_fineweb_score3 \
-  --local-only
+  --no-mirror
 
 # 自定义输出目录和磁盘水位
-uv run python scripts/production/prepare_data.py \
+uv run python scripts/production/download_data.py \
   --datasets-config configs/production/datasets_zh_first_3b.yaml \
-  --output-dir /root/autodl-fs/tokenized \
+  --download-dir data/production/raw_zh_first_3b \
   --min-free-gb 80 \
-  --max-cache-gb 60 \
-  --local-only
+  --max-cache-gb 60
 ```
 
 上传模式仍然可用：
 
 ```bash
 export HF_TOKEN=hf_xxxxxxxxxxxx
-uv run python scripts/production/prepare_data.py \
+uv run python scripts/production/tokenize_raw_data.py \
   --datasets-config configs/production/datasets_zh_first_3b.yaml \
   --hf-token "$HF_TOKEN" \
   --hf-repo username/lite-llm-tokenized \
@@ -139,14 +140,22 @@ uv run python scripts/production/prepare_data.py \
 ## 5. 输出文件结构
 
 ```
-/root/autodl-fs/tokenized_zh_first_3b/
+data/production/raw_zh_first_3b/
+├── zh_fineweb_edu_v21/
+│   ├── zh_fineweb_edu_v21-00000.parquet
+│   └── ...
+├── baai_cci3_hq/
+│   └── baai_cci3_hq-00000.parquet
+├── _cache/downloads/            # 临时 HF 下载缓存，单文件处理后清理
+└── _state/                      # raw 下载续传状态
+
+data/production/tokenized_zh_first_3b/
 ├── zh_fineweb_edu_v21-00000.npy
 ├── zh_fineweb_edu_v21-00001.npy
 ├── baai_cci3_hq-00000.npy
 ├── skypile_150b-00000.npy
 ├── ...
 └── _cache/
-    ├── downloads/               # 临时 HF 下载缓存，单文件处理后清理
     └── state/                   # 文件级续传状态
         ├── zh_fineweb_edu_v21_progress.json
         └── ...

@@ -4,7 +4,8 @@
 # recipe but scales targets down so the full data->tokenize->train->eval loop is
 # practical before committing to the formal run.
 recipe_name: zh_first_v1_3b
-output_dir: /root/autodl-fs/tokenized_zh_first_3b
+raw_output_dir: data/production/raw_zh_first_3b
+output_dir: data/production/tokenized_zh_first_3b
 
 sampling:
   seed: 20260527
