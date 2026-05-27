@@ -1,0 +1,46 @@
+# SFT config for the checkpoint trained on the zh_first_v1_3b pretraining recipe.
+
+output_dir: "./artifacts/production/sft/checkpoints_zh_first_3b"
+resume_from_last_checkpoint: true
+seed: 42
+
+pretrained_model_path: "./artifacts/production/checkpoints_zh_first_3b/final"
+
+max_seq_length: 4096
+data_dir: "./data/production/sft/zh_first_v0_3b"
+tokenizer_name: "Qwen/Qwen3.5-0.8B"
+val_fraction: 0.03
+eval_strategy: "steps"
+eval_steps: 250
+per_device_eval_batch_size: 1
+train_on_assistant_end: true
+
+learning_rate: 2.0e-5
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.95
+max_grad_norm: 1.0
+
+lr_scheduler_type: "cosine"
+warmup_ratio: 0.05
+
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+
+bf16: true
+gradient_checkpointing: true
+use_cpu: false
+
+num_train_epochs: 1
+dataloader_num_workers: 4
+dataloader_pin_memory: true
+
+logging_steps: 10
+logging_dir: "./artifacts/production/sft/logs_zh_first_3b"
+report_to: "wandb"
+
+save_steps: 250
+save_total_limit: 5
+
+deepspeed: "configs/production/deepspeed_zero2.json"
+

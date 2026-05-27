@@ -1,0 +1,42 @@
+# Local SFT smoke-test config.
+
+output_dir: "./artifacts/local/sft/checkpoints"
+resume_from_last_checkpoint: false
+seed: 42
+
+pretrained_model_path: "./artifacts/local/sft/pretrained"
+
+max_seq_length: 128
+data_dir: "./data/local_smoke/sft"
+tokenizer_type: "toy_chatml"
+val_fraction: 0.2
+train_on_assistant_end: true
+
+learning_rate: 5.0e-5
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.95
+max_grad_norm: 1.0
+
+lr_scheduler_type: "cosine"
+warmup_ratio: 0.1
+
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 1
+
+bf16: false
+gradient_checkpointing: false
+use_cpu: true
+
+max_steps: 4
+num_train_epochs: 1
+dataloader_num_workers: 0
+dataloader_pin_memory: false
+
+logging_steps: 1
+logging_dir: "./artifacts/local/sft/logs"
+report_to: "none"
+
+save_steps: 2
+save_total_limit: 2
+

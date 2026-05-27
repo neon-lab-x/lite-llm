@@ -116,7 +116,6 @@ def main():
         folder_path=tokenized_dir,
         repo_id=args.hf_repo,
         repo_type="dataset",
-        path_in_repo=args.repo_path or "",
     )
     elapsed = time.time() - t0
     rate = total_bytes / elapsed / 1e6

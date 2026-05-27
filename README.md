@@ -1,8 +1,8 @@
 # Lite-LLM
 
-从零（from-scratch）预训练一个 **~1.0B 参数的因果语言模型** 的工程脚手架。模型架构是 Llama 风格的 decoder-only Transformer：**Multi-head Latent Attention (MLA) + SwiGLU + RoPE + RMSNorm + QK-Norm**，并接入 HuggingFace `Trainer` 生态，支持单机多卡 + DeepSpeed ZeRO-2 训练，内置基于 `transformers.Cache` 的 KV cache 用于推理加速。
+从零（from-scratch）预训练一个 **~1.0B 参数的因果语言模型** 的工程脚手架。模型架构是 Llama 风格的 decoder-only Transformer：**Multi-head Latent Attention (MLA) + SwiGLU + RoPE + RMSNorm + QK-Norm**，并接入 HuggingFace `Trainer` 生态，支持单机多卡 + DeepSpeed ZeRO-2 训练，内置基于 `transformers.Cache` 的 KV cache 用于推理加速。SFT 作为一套平行 flow 独立放在 `sft/`，只复用 `lite_llm/` 里的模型实现。
 
-> 这是**预训练**项目：模型权重完全从随机初始化训出来，不继承任何已有 checkpoint。复用的只是 Qwen 的 tokenizer（vocab.json + merges.txt），目的是省掉自己训 BPE 的力气，并直接拥有覆盖中英代码数学的多语言词表。
+> 主线是**预训练**：模型权重完全从随机初始化训出来，不继承任何已有 checkpoint。复用的只是 Qwen 的 tokenizer（vocab.json + merges.txt），目的是省掉自己训 BPE 的力气，并直接拥有覆盖中英代码数学的多语言词表。`sft/` 中的监督微调 flow 从预训练 checkpoint 继续训练。
 
 ---
 
@@ -30,6 +30,16 @@ lite-llm/
 │       ├── pack_shards.py               # .npy shard 打包成 ~10GB tar 归档
 │       ├── run_prepare_loop.sh          # prepare_data.py 循环包装（失败自动重跑）
 │       └── upload_checkpoint_to_hf.py   # 训练中定期上传 checkpoint 到 HF Model
+├── sft/                         # 独立 SFT flow（代码/配置/脚本/数据 recipe）
+│   ├── collator.py              # ChatML 渲染 + assistant-only loss mask
+│   ├── data_utils.py            # SFT JSONL 加载 / 校验 / train-val split
+│   ├── runner.py                # SFT Trainer 入口（从预训练 checkpoint 加载）
+│   ├── configs/
+│   │   ├── local/{model,train}.yaml
+│   │   └── production/{datasets,train}_*.yaml
+│   └── scripts/
+│       ├── local/{prepare_data,train}.py
+│       └── production/{download_data,train}.py
 ├── configs/
 │   ├── local/{model,train}.yaml
 │   └── production/{model,train,datasets*}.yaml + deepspeed_zero2.json
@@ -60,6 +70,47 @@ lite-llm/
 | 启动时是否 resume     | 必须 `false`（每次干净重跑）     | 必须 `true`（自动续训）                |
 
 如果你试图把生产数据指向本地路径、把 DeepSpeed 加进本地配置，启动时会立刻报错。
+
+### SFT（Supervised Fine-Tuning）
+
+SFT 不混入 `lite_llm/` 的预训练数据管线，也不新增 `scripts/local/sft_*` 或 `scripts/production/sft_*` 入口；所有 SFT 专属内容都在 `sft/` 目录下：
+
+|                       | Local (smoke test)              | Production (真实 SFT)                  |
+|-----------------------|----------------------------------|----------------------------------------|
+| 入口                  | `sft/scripts/local/prepare_data.py` + `train.py` | `sft/scripts/production/download_data.py` + `train.py` |
+| 配置                  | `sft/configs/local/{model,train}.yaml` | `sft/configs/production/{datasets,train}_*.yaml` |
+| 数据格式              | ChatML messages JSONL            | ChatML messages JSONL                  |
+| Loss mask             | 只训练 assistant 内容和 assistant `<|im_end|>` | 同左 |
+| 训练起点              | tiny smoke checkpoint            | 预训练 checkpoint 的 `final/`          |
+
+本地 smoke：
+
+```bash
+uv run python sft/scripts/local/prepare_data.py
+uv run python sft/scripts/local/train.py
+```
+
+生产 3B recipe SFT：
+
+```bash
+uv run python sft/scripts/production/download_data.py \
+  --datasets-config sft/configs/production/datasets_zh_first_3b.yaml
+
+uv run deepspeed sft/scripts/production/train.py \
+  --train-config sft/configs/production/train_zh_first_3b.yaml \
+  --model-config configs/production/model.yaml
+```
+
+生产 20B recipe SFT：
+
+```bash
+uv run python sft/scripts/production/download_data.py \
+  --datasets-config sft/configs/production/datasets_zh_first_20b.yaml
+
+uv run deepspeed sft/scripts/production/train.py \
+  --train-config sft/configs/production/train_zh_first_20b.yaml \
+  --model-config configs/production/model.yaml
+```
 
 ---
 

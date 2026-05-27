@@ -1,0 +1,97 @@
+# Small, controlled SFT recipe for the zh_first_v1_3b pretraining checkpoint.
+# Active target is ~150k conversations before filtering.
+recipe_name: zh_first_v0_3b
+output_dir: data/production/sft/zh_first_v0_3b
+
+datasets:
+  - name: coig_pc_core
+    source: BAAI/COIG-PC-core
+    split: train
+    format: alpaca
+    target_samples: 45000
+    seed: 20260601
+    license: review
+    filters:
+      min_chars: 20
+      max_chars: 12000
+      min_assistant_chars: 4
+
+  - name: ultrachat_200k
+    source: HuggingFaceH4/ultrachat_200k
+    split: train_sft
+    format: messages
+    target_samples: 40000
+    seed: 20260602
+    license: mit
+    filters:
+      min_chars: 20
+      max_chars: 12000
+      min_assistant_chars: 4
+
+  - name: smoltalk
+    source: HuggingFaceTB/smoltalk
+    split: train
+    format: messages
+    target_samples: 35000
+    seed: 20260603
+    license: apache-2.0
+    filters:
+      min_chars: 20
+      max_chars: 12000
+      min_assistant_chars: 4
+
+  - name: ultrafeedback_sft
+    source: HuggingFaceH4/ultrafeedback_binarized
+    split: train_sft
+    format: messages
+    target_samples: 15000
+    seed: 20260604
+    license: mit
+    filters:
+      min_chars: 20
+      max_chars: 12000
+      min_assistant_chars: 4
+
+  - name: magicoder_oss_instruct
+    source: ise-uiuc/Magicoder-OSS-Instruct-75K
+    split: train
+    format: prompt_response
+    prompt_field: instruction
+    response_field: response
+    target_samples: 10000
+    seed: 20260605
+    license: mit
+    filters:
+      min_chars: 20
+      max_chars: 16000
+      min_assistant_chars: 8
+
+  # Reasoning branch candidate. Keep disabled for the first chat-style run so
+  # the model does not over-adopt explicit reasoning traces.
+  - name: openr1_math_220k
+    source: open-r1/OpenR1-Math-220k
+    split: train
+    format: prompt_response
+    prompt_field: problem
+    response_field: solution
+    target_samples: 10000
+    enabled: false
+    seed: 20260606
+    license: apache-2.0
+    filters:
+      min_chars: 20
+      max_chars: 20000
+      min_assistant_chars: 20
+
+  # Larger Chinese gated candidate. Enable only after accepting dataset terms
+  # and confirming license constraints for the target release.
+  - name: infinity_instruct_0625
+    source: BAAI/Infinity-Instruct
+    subset: 0625
+    split: train
+    format: messages
+    target_samples: 30000
+    enabled: false
+    seed: 20260607
+    license: cc-by-sa-4.0
+

@@ -1,0 +1,94 @@
+# Larger SFT recipe for the zh_first_v1_20b pretraining checkpoint.
+# Same code path as the 3B recipe, with more samples and a slightly broader mix.
+recipe_name: zh_first_v0_20b
+output_dir: /root/autodl-fs/sft/zh_first_v0_20b
+
+datasets:
+  - name: coig_pc_core
+    source: BAAI/COIG-PC-core
+    split: train
+    format: alpaca
+    target_samples: 160000
+    seed: 20260611
+    license: review
+    filters:
+      min_chars: 20
+      max_chars: 12000
+      min_assistant_chars: 4
+
+  - name: ultrachat_200k
+    source: HuggingFaceH4/ultrachat_200k
+    split: train_sft
+    format: messages
+    target_samples: 100000
+    seed: 20260612
+    license: mit
+    filters:
+      min_chars: 20
+      max_chars: 12000
+      min_assistant_chars: 4
+
+  - name: smoltalk
+    source: HuggingFaceTB/smoltalk
+    split: train
+    format: messages
+    target_samples: 150000
+    seed: 20260613
+    license: apache-2.0
+    filters:
+      min_chars: 20
+      max_chars: 12000
+      min_assistant_chars: 4
+
+  - name: ultrafeedback_sft
+    source: HuggingFaceH4/ultrafeedback_binarized
+    split: train_sft
+    format: messages
+    target_samples: 50000
+    seed: 20260614
+    license: mit
+    filters:
+      min_chars: 20
+      max_chars: 12000
+      min_assistant_chars: 4
+
+  - name: magicoder_oss_instruct
+    source: ise-uiuc/Magicoder-OSS-Instruct-75K
+    split: train
+    format: prompt_response
+    prompt_field: instruction
+    response_field: response
+    target_samples: 50000
+    seed: 20260615
+    license: mit
+    filters:
+      min_chars: 20
+      max_chars: 16000
+      min_assistant_chars: 8
+
+  - name: openr1_math_220k
+    source: open-r1/OpenR1-Math-220k
+    split: train
+    format: prompt_response
+    prompt_field: problem
+    response_field: solution
+    target_samples: 40000
+    seed: 20260616
+    license: apache-2.0
+    filters:
+      min_chars: 20
+      max_chars: 20000
+      min_assistant_chars: 20
+
+  # Enable for a Chinese-heavy production SFT variant after accepting terms and
+  # deciding whether CC-BY-SA-4.0 fits the release plan.
+  - name: infinity_instruct_0625
+    source: BAAI/Infinity-Instruct
+    subset: 0625
+    split: train
+    format: messages
+    target_samples: 120000
+    enabled: false
+    seed: 20260617
+    license: cc-by-sa-4.0
+
